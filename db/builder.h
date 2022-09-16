@@ -6,6 +6,7 @@
 #define STORAGE_LEVELDB_DB_BUILDER_H_
 
 #include "leveldb/status.h"
+#include "util/cuckoo_filter.h"
 
 namespace leveldb {
 
@@ -23,7 +24,7 @@ class VersionEdit;
 // If no data is present in *iter, meta->file_size will be set to
 // zero, and no Table file will be produced.
 Status BuildTable(const std::string& dbname, Env* env, const Options& options,
-                  TableCache* table_cache, Iterator* iter, FileMetaData* meta);
+                  TableCache* table_cache, Iterator* iter, FileMetaData* meta, CuckooFilter* cuckoo_filter);
 
 }  // namespace leveldb
 

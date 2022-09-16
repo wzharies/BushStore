@@ -18,11 +18,13 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <unordered_map>
 
 #include "db/dbformat.h"
 #include "db/version_edit.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
+#include "util/cuckoo_filter.h"
 
 namespace leveldb {
 
@@ -73,7 +75,7 @@ class Version {
   void AddIterators(const ReadOptions&, std::vector<Iterator*>* iters);
 
   Status Get(const ReadOptions&, const LookupKey& key, std::string* val,
-             GetStats* stats);
+             GetStats* stats, CuckooFilter* cuckoo_filter_);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.
@@ -152,6 +154,7 @@ class Version {
 
   // List of files per level
   std::vector<FileMetaData*> files_[config::kNumLevels];
+  std::unordered_map<uint64_t,std::pair<uint64_t,FileMetaData*>> map_files_;
 
   // Next file to compact based on seek stats.
   FileMetaData* file_to_compact_;
@@ -191,7 +194,10 @@ class VersionSet {
   uint64_t ManifestFileNumber() const { return manifest_file_number_; }
 
   // Allocate and return a new file number
-  uint64_t NewFileNumber() { return next_file_number_++; }
+  uint64_t NewFileNumber() {
+    assert(next_file_number_ < 65535);
+    return next_file_number_++; 
+  }
 
   // Arrange to reuse "file_number" unless a newer file number has
   // already been allocated.

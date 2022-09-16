@@ -322,9 +322,10 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
 }
 
 Status Version::Get(const ReadOptions& options, const LookupKey& k,
-                    std::string* value, GetStats* stats) {
+                    std::string* value, GetStats* stats, CuckooFilter* cuckoo_filter_) {
   stats->seek_file = nullptr;
   stats->seek_file_level = -1;
+  uint32_t file_number;
 
   struct State {
     Saver saver;
@@ -394,8 +395,14 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
   state.saver.user_key = k.user_key();
   state.saver.value = value;
 
-  ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
-
+  cuckoo_filter_->Get(state.saver.user_key,&file_number);
+  if(map_files_.count(file_number) > 0 &&
+    state.Match(&state, map_files_[file_number].first, map_files_[file_number].second)) {
+    
+  }else{
+    ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
+  }
+  
   return state.found ? state.s : Status::NotFound(Slice());
 }
 
@@ -726,6 +733,7 @@ class VersionSet::Builder {
       }
       f->refs++;
       files->push_back(f);
+      v->map_files_[f->number] = std::pair<uint64_t,FileMetaData*>(level,f);
     }
   }
 };
@@ -1227,17 +1235,29 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
   const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
   Iterator** list = new Iterator*[space];
+  int files_num = c->inputs_[0].size() + c->inputs_[1].size();
+  uint64_t* levels = new uint64_t[files_num];
   int num = 0;
+  // int files_cnt = 0;
+  // for (int which = 0; which < 2; which++) {
+  //   const std::vector<FileMetaData*>& files = c->inputs_[which];
+  //   for (size_t i = 0; i < files.size(); i++) {
+  //     levels[files_cnt++] = files[i]->number;
+  //   }
+  // }
+
   for (int which = 0; which < 2; which++) {
     if (!c->inputs_[which].empty()) {
       if (c->level() + which == 0) {
         const std::vector<FileMetaData*>& files = c->inputs_[which];
         for (size_t i = 0; i < files.size(); i++) {
+          levels[num] = files[i]->number;
           list[num++] = table_cache_->NewIterator(options, files[i]->number,
                                                   files[i]->file_size);
         }
       } else {
         // Create concatenating iterator for the files from this level
+        levels[num] = c->level() + which;
         list[num++] = NewTwoLevelIterator(
             new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
             &GetFileIterator, table_cache_, options);
@@ -1245,7 +1265,8 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
     }
   }
   assert(num <= space);
-  Iterator* result = NewMergingIterator(&icmp_, list, num);
+  //assert(files_cnt <= files_num);
+  Iterator* result = NewMergingIterator(&icmp_, list, num, levels);
   delete[] list;
   return result;
 }

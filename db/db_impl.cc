@@ -81,6 +81,7 @@ struct DBImpl::CompactionState {
   // State kept for output being generated
   WritableFile* outfile;
   TableBuilder* builder;
+  uint64_t out_file_number;
 
   uint64_t total_bytes;
 };
@@ -147,7 +148,8 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       background_compaction_scheduled_(false),
       manual_compaction_(nullptr),
       versions_(new VersionSet(dbname_, &options_, table_cache_,
-                               &internal_comparator_)) {}
+                               &internal_comparator_)),
+      cuckoo_filter_(raw_options.bucket_nums == 0 ? nullptr : new CuckooFilter(raw_options.bucket_nums)){}
 
 DBImpl::~DBImpl() {
   // Wait for background work to finish.
@@ -169,6 +171,7 @@ DBImpl::~DBImpl() {
   delete log_;
   delete logfile_;
   delete table_cache_;
+  delete cuckoo_filter_;
 
   if (owns_info_log_) {
     delete options_.info_log;
@@ -516,7 +519,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
+    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta, cuckoo_filter_);
     mutex_.Lock();
   }
 
@@ -815,6 +818,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 
   // Make the output file
   std::string fname = TableFileName(dbname_, file_number);
+  compact->out_file_number = file_number;
   Status s = env_->NewWritableFile(fname, &compact->outfile);
   if (s.ok()) {
     compact->builder = new TableBuilder(options_, compact->outfile);
@@ -999,6 +1003,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       }
       compact->current_output()->largest.DecodeFrom(key);
       compact->builder->Add(key, input->value());
+      cuckoo_filter_->Put(key, compact->out_file_number);
 
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=
@@ -1008,6 +1013,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
           break;
         }
       }
+    }else{
+      cuckoo_filter_->Delete(key, compact->out_file_number);
     }
 
     input->Next();
@@ -1090,7 +1097,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   }
   versions_->current()->AddIterators(options, &list);
   Iterator* internal_iter =
-      NewMergingIterator(&internal_comparator_, &list[0], list.size());
+      NewMergingIterator(&internal_comparator_, &list[0], list.size(),nullptr);
   versions_->current()->Ref();
 
   IterState* cleanup = new IterState(&mutex_, mem_, imm_, versions_->current());
@@ -1144,7 +1151,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
     } else if (imm != nullptr && imm->Get(lkey, value, &s)) {
       // Done
     } else {
-      s = current->Get(options, lkey, value, &stats);
+      s = current->Get(options, lkey, value, &stats, cuckoo_filter_);
       have_stat_update = true;
     }
     mutex_.Lock();

@@ -17,6 +17,7 @@
 #include "leveldb/env.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
+#include "util/cuckoo_filter.h"
 
 namespace leveldb {
 
@@ -203,6 +204,8 @@ class DBImpl : public DB {
   Status bg_error_ GUARDED_BY(mutex_);
 
   CompactionStats stats_[config::kNumLevels] GUARDED_BY(mutex_);
+
+  CuckooFilter* cuckoo_filter_;
 };
 
 // Sanitize db options.  The caller should delete result.info_log if
