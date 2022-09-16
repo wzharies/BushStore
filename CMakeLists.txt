@@ -9,7 +9,7 @@ project(leveldb VERSION 1.23.0 LANGUAGES C CXX)
 # C standard can be overridden when this is used as a sub-project.
 if(NOT CMAKE_C_STANDARD)
   # This project can use C11, but will gracefully decay down to C89.
-  set(CMAKE_C_STANDARD 11)
+  set(CMAKE_C_STANDARD 17)
   set(CMAKE_C_STANDARD_REQUIRED OFF)
   set(CMAKE_C_EXTENSIONS OFF)
 endif(NOT CMAKE_C_STANDARD)
@@ -17,7 +17,7 @@ endif(NOT CMAKE_C_STANDARD)
 # C++ standard can be overridden when this is used as a sub-project.
 if(NOT CMAKE_CXX_STANDARD)
   # This project requires C++11.
-  set(CMAKE_CXX_STANDARD 11)
+  set(CMAKE_CXX_STANDARD 17)
   set(CMAKE_CXX_STANDARD_REQUIRED ON)
   set(CMAKE_CXX_EXTENSIONS OFF)
 endif(NOT CMAKE_CXX_STANDARD)
@@ -33,6 +33,21 @@ endif (WIN32)
 option(LEVELDB_BUILD_TESTS "Build LevelDB's unit tests" ON)
 option(LEVELDB_BUILD_BENCHMARKS "Build LevelDB's benchmarks" ON)
 option(LEVELDB_INSTALL "Install LevelDB's header and library" ON)
+set(USE_ASAN false)
+
+if (USE_ASAN)
+  # Enable ASan
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fsanitize=undefined")
+
+  # Disable frame pointer omission
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
+
+  # Enable use-after-scope check
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize-address-use-after-scope")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lasan")
+
+  # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
+endif (USE_ASAN)
 
 include(CheckIncludeFile)
 check_include_file("unistd.h" HAVE_UNISTD_H)
@@ -51,6 +66,12 @@ include(CheckCXXSymbolExists)
 check_cxx_symbol_exists(fdatasync "unistd.h" HAVE_FDATASYNC)
 check_cxx_symbol_exists(F_FULLFSYNC "fcntl.h" HAVE_FULLFSYNC)
 check_cxx_symbol_exists(O_CLOEXEC "fcntl.h" HAVE_O_CLOEXEC)
+
+# set(CMAKE_VERBOSE_MAKEFILEON ON)
+# add_definitions(-DMY_DEBUG=1)
+# if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+#   add_compile_definitions(DEBUG)
+# endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   # Disable C++ exceptions.
@@ -153,6 +174,7 @@ target_sources(leveldb
     "port/port_stdcxx.h"
     "port/port.h"
     "port/thread_annotations.h"
+    "table/bitmap.h"
     "table/block_builder.cc"
     "table/block_builder.h"
     "table/block.cc"
@@ -165,6 +187,10 @@ target_sources(leveldb
     "table/iterator.cc"
     "table/merger.cc"
     "table/merger.h"
+    "table/pm_table_builder.h"
+    "table/pm_table_builder.cc"
+    "table/pm_mem_alloc.h"
+    "table/pm_mem_alloc.cc"
     "table/table_builder.cc"
     "table/table.cc"
     "table/two_level_iterator.cc"
@@ -178,6 +204,8 @@ target_sources(leveldb
     "util/comparator.cc"
     "util/crc32c.cc"
     "util/crc32c.h"
+    "util/cuckoo_filter.cc"
+    "util/cuckoo_filter.h"
     "util/env.cc"
     "util/filter_policy.cc"
     "util/hash.cc"
@@ -189,6 +217,23 @@ target_sources(leveldb
     "util/options.cc"
     "util/random.h"
     "util/status.cc"
+    "bplustree/bp_iterator.h"
+    "bplustree/bp_iterator.cc"
+    "bplustree/bp_merge_iterator.h"
+    "bplustree/bptree.h"
+    "bplustree/bptree.cc"
+    "bplustree/keyinput.h"
+    "bplustree/mempool.h"
+    "bplustree/mempool.cc"
+    "bplustree/nodepref.h"
+    "bplustree/nvm-common.h"
+    "bplustree/nvm-common.cc"
+    "bplustree/performance.h"
+    "bplustree/persist.h"
+    "bplustree/tree_api.hpp"
+    "bplustree/tree.cc"
+    "bplustree/tree.h"
+
 
   # Only CMake 3.3+ supports PUBLIC sources in targets exported by "install".
   $<$<VERSION_GREATER:CMAKE_VERSION,3.2>:PUBLIC>
@@ -273,9 +318,11 @@ endif(HAVE_CRC32C)
 if(HAVE_SNAPPY)
   target_link_libraries(leveldb snappy)
 endif(HAVE_SNAPPY)
-if(HAVE_TCMALLOC)
+if(HAVE_TCMALLOC AND (NOT USE_ASAN))
   target_link_libraries(leveldb tcmalloc)
-endif(HAVE_TCMALLOC)
+endif(HAVE_TCMALLOC AND (NOT USE_ASAN))
+target_link_libraries(leveldb pmem)
+target_link_libraries(leveldb pmemlog)
 
 # Needed by port_stdcxx.h
 find_package(Threads REQUIRED)

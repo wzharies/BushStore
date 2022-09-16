@@ -1,0 +1,3 @@
+21
+./ycsbc -db leveldb -dbpath /mnt/pmem1.2/pm_test -pmpath /mnt/pmem1.2/pm_test -threads 20 -P workloads/multi_thread2.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency false
+0

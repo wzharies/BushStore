@@ -18,11 +18,14 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <unordered_map>
 
 #include "db/dbformat.h"
 #include "db/version_edit.h"
+#include "leveldb/env.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
+#include "util/cuckoo_filter.h"
 
 namespace leveldb {
 
@@ -73,7 +76,7 @@ class Version {
   void AddIterators(const ReadOptions&, std::vector<Iterator*>* iters);
 
   Status Get(const ReadOptions&, const LookupKey& key, std::string* val,
-             GetStats* stats);
+             GetStats* stats, CuckooFilter* cuckoo_filter_);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.
@@ -144,6 +147,8 @@ class Version {
   // REQUIRES: user portion of internal_key == user_key.
   void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                           bool (*func)(void*, int, FileMetaData*));
+  void ForEachOneLevel(Slice user_key, Slice internal_key, void* arg,
+                          bool (*func)(void*, int, FileMetaData*), uint64_t level);
 
   VersionSet* vset_;  // VersionSet to which this Version belongs
   Version* next_;     // Next version in linked list
@@ -152,6 +157,7 @@ class Version {
 
   // List of files per level
   std::vector<FileMetaData*> files_[config::kNumLevels];
+  std::unordered_map<uint64_t,std::pair<uint64_t,FileMetaData*>> map_files_;
 
   // Next file to compact based on seek stats.
   FileMetaData* file_to_compact_;
@@ -186,12 +192,14 @@ class VersionSet {
 
   // Return the current version.
   Version* current() const { return current_; }
-
   // Return the current manifest file number
   uint64_t ManifestFileNumber() const { return manifest_file_number_; }
 
   // Allocate and return a new file number
-  uint64_t NewFileNumber() { return next_file_number_++; }
+  uint64_t NewFileNumber() {
+    //assert(next_file_number_ < 65535);
+    return next_file_number_++; 
+  }
 
   // Arrange to reuse "file_number" unless a newer file number has
   // already been allocated.
@@ -232,6 +240,19 @@ class VersionSet {
   // Otherwise returns a pointer to a heap-allocated object that
   // describes the compaction.  Caller should delete the result.
   Compaction* PickCompaction();
+
+  void setCompactionPointer(uint64_t key, const int level, Compaction* c){
+    EncodeFixed64Reverse(nextKey, key);
+    Slice skey(nextKey, 8);
+    InternalKey ikey(skey, last_sequence_, kTypeValue);
+    compact_pointer_[level] = ikey.Encode().ToString();
+  }
+
+  void setCompactionPointer(const std::string& s, const int level){
+    compact_pointer_[level] = s;
+  }
+
+  Iterator* getTwoLevelIterator(std::vector<FileMetaData*>& files);
 
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
@@ -313,6 +334,10 @@ class VersionSet {
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
   std::string compact_pointer_[config::kNumLevels];
+  char nextKey[20];
+
+  uint64_t search_count[3];
+  uint64_t micros[3];
 };
 
 // A Compaction encapsulates information about a compaction.
@@ -368,9 +393,6 @@ class Compaction {
   Version* input_version_;
   VersionEdit edit_;
 
-  // Each compaction reads inputs from "level_" and "level_+1"
-  std::vector<FileMetaData*> inputs_[2];  // The two sets of inputs
-
   // State used to check for number of overlapping grandparent files
   // (parent == level_ + 1, grandparent == level_ + 2)
   std::vector<FileMetaData*> grandparents_;
@@ -386,6 +408,14 @@ class Compaction {
   // higher level than the ones involved in this compaction (i.e. for
   // all L >= level_ + 2).
   size_t level_ptrs_[config::kNumLevels];
+
+public:
+  // Each compaction reads inputs from "level_" and "level_+1"
+  std::vector<FileMetaData*> inputs_[2];  // The two sets of inputs
+  Slice smallest;
+  Slice largest;
+  // Slice sst_smallest;
+  // Slice sst_largets;
 };
 
 }  // namespace leveldb

@@ -75,6 +75,11 @@ class CondVar {
     cv_.wait(lock);
     lock.release();
   }
+  void WaitFor(int seconds) {
+    std::unique_lock<std::mutex> lock(mu_->mu_, std::adopt_lock);
+    cv_.wait_for(lock, std::chrono::milliseconds(seconds));
+    lock.release();
+  }
   void Signal() { cv_.notify_one(); }
   void SignalAll() { cv_.notify_all(); }
 

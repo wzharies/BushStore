@@ -15,7 +15,7 @@
 namespace leveldb {
 
 Status BuildTable(const std::string& dbname, Env* env, const Options& options,
-                  TableCache* table_cache, Iterator* iter, FileMetaData* meta) {
+                  TableCache* table_cache, Iterator* iter, FileMetaData* meta, CuckooFilter* cuckoo_filter) {
   Status s;
   meta->file_size = 0;
   iter->SeekToFirst();
@@ -31,9 +31,11 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     TableBuilder* builder = new TableBuilder(options, file);
     meta->smallest.DecodeFrom(iter->key());
     Slice key;
+    Slice user_key;
     for (; iter->Valid(); iter->Next()) {
       key = iter->key();
       builder->Add(key, iter->value());
+      // cuckoo_filter->Put(ExtractUserKey(key), meta->number);
     }
     if (!key.empty()) {
       meta->largest.DecodeFrom(key);

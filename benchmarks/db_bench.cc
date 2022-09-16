@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cassert>
 #include <sys/types.h>
 
 #include <atomic>
@@ -16,10 +17,16 @@
 #include "leveldb/write_batch.h"
 #include "port/port.h"
 #include "util/crc32c.h"
+#include "util/global.h"
 #include "util/histogram.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/testutil.h"
+#include "util/coding.h"
+#include "db/db_impl.h"
+#include "db/memtable.h"
+#include "db/version_set.h"
+#include "bplustree/bp_iterator.h"
 
 // Comma-separated list of operations to run in the specified order
 //   Actual benchmarks:
@@ -63,7 +70,7 @@ static const char* FLAGS_benchmarks =
     "snappyuncomp,";
 
 // Number of key/values to place in database
-static int FLAGS_num = 1000000;
+static int FLAGS_num = 10 * 1024 * 1024;
 
 // Number of read operations to do.  If negative, do FLAGS_num reads.
 static int FLAGS_reads = -1;
@@ -72,7 +79,7 @@ static int FLAGS_reads = -1;
 static int FLAGS_threads = 1;
 
 // Size of each value
-static int FLAGS_value_size = 100;
+static int FLAGS_value_size = 4 * 1024;
 
 // Arrange to generate values that shrink to this fraction of
 // their original size after compression
@@ -103,9 +110,13 @@ static int FLAGS_cache_size = -1;
 // Maximum number of files to keep open at the same time (use default if == 0)
 static int FLAGS_open_files = 0;
 
+static int FLAGS_write_batch = 1;
+
+static double FLAGS_gc_ratio = 0.5;
+
 // Bloom filter bits per key.
 // Negative means use default settings.
-static int FLAGS_bloom_bits = -1;
+static int FLAGS_bloom_bits = 16;
 
 // Common key prefix length.
 static int FLAGS_key_prefix = 0;
@@ -119,7 +130,17 @@ static bool FLAGS_use_existing_db = false;
 static bool FLAGS_reuse_logs = false;
 
 // Use the db with the following name.
-static const char* FLAGS_db = nullptr;
+static const char* FLAGS_db = "/mnt/pmem0.1/pm_test";
+
+static char* PM_PATH = nullptr;
+// static size_t VALUE_SIZE = 4096;
+static uint64_t PM_SIZE = 200ULL * 1024 * 1024 * 1024;
+static uint64_t EXTENT_SIZE = 512 * 1024 * 1024;
+static bool USE_PM = true;
+static bool FLUSH_SSD = false;
+static bool Throughput = false;
+static bool DYNAMIC_TREE = true;
+static uint64_t BUCKET_NUMS = 32 * 1024 * 1024;
 
 namespace leveldb {
 
@@ -183,6 +204,16 @@ class RandomGenerator {
     pos_ += len;
     return Slice(data_.data() + pos_ - len, len);
   }
+
+  Slice GenerateWithKey(size_t len, const int& key) {
+    if (pos_ + len > data_.size()) {
+      pos_ = 0;
+      assert(len < data_.size());
+    }
+    pos_ += len;
+    EncodeFixed64(data_.data() + pos_ - len, key);
+    return Slice(data_.data() + pos_ - len, len);
+  }
 };
 
 class KeyBuffer {
@@ -195,11 +226,12 @@ class KeyBuffer {
   KeyBuffer(KeyBuffer& other) = delete;
 
   void Set(int k) {
-    std::snprintf(buffer_ + FLAGS_key_prefix,
-                  sizeof(buffer_) - FLAGS_key_prefix, "%016d", k);
+    EncodeFixed64Reverse(buffer_ + FLAGS_key_prefix, k);
+    // std::snprintf(buffer_ + FLAGS_key_prefix,
+    //               sizeof(buffer_) - FLAGS_key_prefix, "%08d", k);
   }
 
-  Slice slice() const { return Slice(buffer_, FLAGS_key_prefix + 16); }
+  Slice slice() const { return Slice(buffer_, FLAGS_key_prefix + 8); }
 
  private:
   char buffer_[1024];
@@ -360,8 +392,8 @@ struct ThreadState {
   Random rand;  // Has different seeds for different threads
   Stats stats;
   SharedState* shared;
-
-  ThreadState(int index, int seed) : tid(index), rand(seed), shared(nullptr) {}
+  ThreadState(int index) : tid(index), rand(1000 + index), shared(nullptr) {}
+  // ThreadState(int index, int seed) : tid(index), rand(seed), shared(nullptr) {}
 };
 
 }  // namespace
@@ -381,7 +413,7 @@ class Benchmark {
   int total_thread_count_;
 
   void PrintHeader() {
-    const int kKeySize = 16 + FLAGS_key_prefix;
+    const int kKeySize = 8 + FLAGS_key_prefix;
     PrintEnvironment();
     std::fprintf(stdout, "Keys:       %d bytes each\n", kKeySize);
     std::fprintf(
@@ -524,6 +556,9 @@ class Benchmark {
       } else if (name == Slice("fillseq")) {
         fresh_db = true;
         method = &Benchmark::WriteSeq;
+      } else if (name == Slice("fillseqNofresh")) {
+        fresh_db = false;
+        method = &Benchmark::WriteSeq;
       } else if (name == Slice("fillbatch")) {
         fresh_db = true;
         entries_per_batch_ = 1000;
@@ -546,6 +581,8 @@ class Benchmark {
         method = &Benchmark::WriteRandom;
       } else if (name == Slice("readseq")) {
         method = &Benchmark::ReadSequential;
+      } else if (name == Slice("readseq2")) {
+        method = &Benchmark::ReadSeq;
       } else if (name == Slice("readreverse")) {
         method = &Benchmark::ReadReverse;
       } else if (name == Slice("readrandom")) {
@@ -574,14 +611,20 @@ class Benchmark {
         method = &Benchmark::Crc32c;
       } else if (name == Slice("snappycomp")) {
         method = &Benchmark::SnappyCompress;
-      } else if (name == Slice("snappyuncomp")) {
-        method = &Benchmark::SnappyUncompress;
+      } else if (name == Slice("skiplistindex")) {
+        method = &Benchmark::ReadSequentialOnlyKey;
+      } else if (name == Slice("bptreeindex")) {
+        method = &Benchmark::ReadSequentialForBPTree;
+      } else if (name == Slice("sstableindex")) {
+        method = &Benchmark::ReadSequentialForSSTable;
       } else if (name == Slice("heapprofile")) {
         HeapProfile();
       } else if (name == Slice("stats")) {
         PrintStats("leveldb.stats");
       } else if (name == Slice("sstables")) {
         PrintStats("leveldb.sstables");
+      } else if (name == Slice("flush")) {
+        PrintStats("leveldb.flush");
       } else {
         if (!name.empty()) {  // No error message for empty name
           std::fprintf(stderr, "unknown benchmark '%s'\n",
@@ -657,7 +700,8 @@ class Benchmark {
       // Seed the thread's random state deterministically based upon thread
       // creation across all benchmarks. This ensures that the seeds are unique
       // but reproducible when rerunning the same set of benchmarks.
-      arg[i].thread = new ThreadState(i, /*seed=*/1000 + total_thread_count_);
+      arg[i].thread = new ThreadState(i);
+      // arg[i].thread = new ThreadState(i, /*seed=*/1000 + total_thread_count_);
       arg[i].thread->shared = &shared;
       g_env->StartThread(ThreadBody, &arg[i]);
     }
@@ -771,6 +815,18 @@ class Benchmark {
     options.max_open_files = FLAGS_open_files;
     options.filter_policy = filter_policy_;
     options.reuse_logs = FLAGS_reuse_logs;
+
+    options.bucket_nums = BUCKET_NUMS;
+    if(PM_PATH != nullptr){
+      options.pm_path_ = PM_PATH;
+    }
+    // options.value_size_ = FLAGS_value_size;
+    options.use_pm_ = USE_PM;
+    options.pm_size_ = PM_SIZE;
+    options.extent_size_ = EXTENT_SIZE;
+    options.flush_ssd = FLUSH_SSD;
+    options.dynamic_tree = DYNAMIC_TREE;
+    options.gc_ratio = FLAGS_gc_ratio;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       std::fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -790,6 +846,7 @@ class Benchmark {
 
   void WriteRandom(ThreadState* thread) { DoWrite(thread, false); }
 
+  const int BUFFER_SIZE = 4096; 
   void DoWrite(ThreadState* thread, bool seq) {
     if (num_ != FLAGS_num) {
       char msg[100];
@@ -801,36 +858,151 @@ class Benchmark {
     WriteBatch batch;
     Status s;
     int64_t bytes = 0;
+    int64_t bytes_this_batch = 0;
     KeyBuffer key;
+
+    auto start_time = std::chrono::steady_clock::now();
+    auto last_report_time = start_time;
+    long long bytes_this_second = 0;
+
+    int first_write_nums = num_ / FLAGS_write_batch;
+
     for (int i = 0; i < num_; i += entries_per_batch_) {
+      if(i % first_write_nums == 0){
+        thread->rand.Reset();
+      }
       batch.Clear();
+      bytes_this_batch = 0;
       for (int j = 0; j < entries_per_batch_; j++) {
-        const int k = seq ? i + j : thread->rand.Uniform(FLAGS_num);
+        const int k = seq ? (i % first_write_nums) + j : (thread->rand.Next() % FLAGS_num);
+        // const int k = seq ? i + j : thread->rand.Uniform(FLAGS_num);
         key.Set(k);
-        batch.Put(key.slice(), gen.Generate(value_size_));
-        bytes += value_size_ + key.slice().size();
+        batch.Put(key.slice(), gen.GenerateWithKey(value_size_, k));
+        // batch.Put(key.slice(), gen.Generate(value_size_));
+        bytes_this_batch += value_size_ + key.slice().size();
         thread->stats.FinishedSingleOp();
       }
       s = db_->Write(write_options_, &batch);
+      if(Throughput){
+        bytes_this_second += bytes_this_batch;
+        auto now = std::chrono::steady_clock::now();
+        auto cur_elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
+        auto last_elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(last_report_time - start_time).count();
+        auto diff_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_report_time).count();
+        if (cur_elapsed_time / 1000 != last_elapsed_time / 1000) {
+          double throughput = bytes_this_second * 1.0 / 1024 / 1024 / (diff_time / 1000.0);
+          std::cout << "Throughput " << cur_elapsed_time / 1000 << " second: " << throughput << " MB per second" << std::endl;
+          last_report_time = now;
+          bytes_this_second = 0;
+        }
+      }
+      bytes += bytes_this_batch;
       if (!s.ok()) {
         std::fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         std::exit(1);
       }
     }
     thread->stats.AddBytes(bytes);
+    if(WRITE_TIME_ANALYSIS){
+      std::cout<< ((DBImpl*)db_)->writeStats_.getStats() << std::endl;
+    }
   }
 
   void ReadSequential(ThreadState* thread) {
     Iterator* iter = db_->NewIterator(ReadOptions());
     int i = 0;
     int64_t bytes = 0;
+    // key_type lastKey = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
+      // key_type newkey = DecodeDBBenchFixed64(iter->key().data());
+      // if(newkey != lastKey + 1){
+      //   printf("%lu between %lu not fount!\n", lastKey, newkey);
+      // }
+      // lastKey = newkey;
       bytes += iter->key().size() + iter->value().size();
       thread->stats.FinishedSingleOp();
       ++i;
     }
+    // printf("endkey %lu\n", lastKey);
     delete iter;
     thread->stats.AddBytes(bytes);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%d found)", i);
+    thread->stats.AddMessage(msg);
+  }
+
+  void ReadSequentialOnlyKey(ThreadState* thread) {
+    DBImpl *dbimpl = (DBImpl*)db_;
+    Iterator* iter = dbimpl->mem_->NewIterator();
+    int i = 0;
+    int64_t bytes = 0;
+    // key_type lastKey = 0;
+    for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
+      // key_type newkey = DecodeDBBenchFixed64(iter->key().data());
+      // if(newkey != lastKey + 1){
+      //   printf("%lu between %lu not fount!\n", lastKey, newkey);
+      // }
+      // lastKey = newkey;
+      bytes += iter->key().size();
+      thread->stats.FinishedSingleOp();
+      ++i;
+    }
+    // printf("endkey %lu\n", lastKey);
+    delete iter;
+    thread->stats.AddBytes(bytes);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%d found)", i);
+    thread->stats.AddMessage(msg);
+  }
+
+  void ReadSequentialForBPTree(ThreadState* thread){
+    std::cout<<"ReadSequentialForBPTree"<<std::endl;
+    DBImpl *dbimpl = (DBImpl*)db_;
+    assert(dbimpl->Table_L0_.size() == 1);
+    Iterator* iter = new BP_Iterator_Read(dbimpl->Table_L0_[0], dbimpl->pmAlloc_, true);
+    int i = 0;
+    int64_t bytes = 0;
+    // key_type lastKey = 0;
+    for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
+      // key_type newkey = DecodeDBBenchFixed64(iter->key().data());
+      // if(newkey != lastKey + 1){
+      //   printf("%lu between %lu not fount!\n", lastKey, newkey);
+      // }
+      // lastKey = newkey;
+      // bytes += iter->key().size() + iter->value().size();
+      bytes += iter->key().size();
+      thread->stats.FinishedSingleOp();
+      ++i;
+    }
+    // printf("endkey %lu\n", lastKey);
+    delete iter;
+    thread->stats.AddBytes(bytes);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%d found)", i);
+    thread->stats.AddMessage(msg);
+  }
+
+  void ReadSequentialForSSTable(ThreadState* thread){
+    Iterator* iter = db_->NewIterator(ReadOptions());
+    int i = 0;
+    int64_t bytes = 0;
+    // key_type lastKey = 0;
+    for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
+      // key_type newkey = DecodeDBBenchFixed64(iter->key().data());
+      // if(newkey != lastKey + 1){
+      //   printf("%lu between %lu not fount!\n", lastKey, newkey);
+      // }
+      // lastKey = newkey;
+      bytes += iter->key().size();
+      thread->stats.FinishedSingleOp();
+      ++i;
+    }
+    // printf("endkey %lu\n", lastKey);
+    delete iter;
+    thread->stats.AddBytes(bytes);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%d found)", i);
+    thread->stats.AddMessage(msg);
   }
 
   void ReadReverse(ThreadState* thread) {
@@ -845,22 +1017,75 @@ class Benchmark {
     delete iter;
     thread->stats.AddBytes(bytes);
   }
+  void ReadSeq(ThreadState* thread) {
+    ReadOptions options;
+    std::string value;
+    int found = 0;
+    int wrong = 0;
+    KeyBuffer key;
+    int64_t bytes = 0;
+    for (int i = 0; i < reads_; i++) {
+      const int k = i;
+      // const int k = thread->rand.Uniform(FLAGS_num);
+      key.Set(k);
+      if (db_->Get(options, key.slice(), &value).ok()) {
+        found++;
+        bytes += key.slice().size() + value.size();
+
+        // uint64_t k_temp = DecodeFixed64(value.c_str());
+        // if(k == k_temp)
+        //   found++;
+        // else
+        //   wrong++;
+      }
+      // else{
+      //   printf("%d not found.\n", k);
+      //   db_->Get(options, key.slice(), &value).ok();
+      // }
+      thread->stats.FinishedSingleOp();
+    }
+    thread->stats.AddBytes(bytes);
+    if(READ_TIME_ANALYSIS){
+      std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
+    }
+    char msg[100];
+    std::snprintf(msg, sizeof(msg), "(%d of %d found), %d wrong", found, num_, wrong);
+    thread->stats.AddMessage(msg);
+  }
 
   void ReadRandom(ThreadState* thread) {
     ReadOptions options;
     std::string value;
     int found = 0;
+    int wrong = 0;
     KeyBuffer key;
+    int64_t bytes = 0;
     for (int i = 0; i < reads_; i++) {
-      const int k = thread->rand.Uniform(FLAGS_num);
+      const int k = (thread->rand.Next() % FLAGS_num);
+      // const int k = thread->rand.Uniform(FLAGS_num);
       key.Set(k);
       if (db_->Get(options, key.slice(), &value).ok()) {
+        bytes += key.slice().size() + value.size();
         found++;
+        // uint64_t k_temp = DecodeFixed64(value.c_str());
+        // if(k == k_temp)
+        //   found++;
+        // else
+        //   wrong++;
+      }else{
+        // bytes += key.slice().size();
       }
+      // else{
+      //   printf("%d not found.\n", k);
+      // }
       thread->stats.FinishedSingleOp();
     }
+    thread->stats.AddBytes(bytes);
+    if(READ_TIME_ANALYSIS){
+      std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
+    }
     char msg[100];
-    std::snprintf(msg, sizeof(msg), "(%d of %d found)", found, num_);
+    std::snprintf(msg, sizeof(msg), "(%d of %d found), %d wrong", found, num_, wrong);
     thread->stats.AddMessage(msg);
   }
 
@@ -971,7 +1196,7 @@ class Benchmark {
         const int k = thread->rand.Uniform(FLAGS_num);
         key.Set(k);
         Status s =
-            db_->Put(write_options_, key.slice(), gen.Generate(value_size_));
+            db_->Put(write_options_, key.slice(), gen.GenerateWithKey(value_size_, k));
         if (!s.ok()) {
           std::fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           std::exit(1);
@@ -980,6 +1205,9 @@ class Benchmark {
 
       // Do not count any of the preceding work/delay in stats.
       thread->stats.Start();
+      if(WRITE_TIME_ANALYSIS){
+        std::cout<< ((DBImpl*)db_)->writeStats_.getStats() << std::endl;
+      }
     }
   }
 
@@ -1028,6 +1256,8 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; i++) {
     double d;
     int n;
+    size_t length;
+    uint64_t space;
     char junk;
     if (leveldb::Slice(argv[i]).starts_with("--benchmarks=")) {
       FLAGS_benchmarks = argv[i] + strlen("--benchmarks=");
@@ -1067,6 +1297,32 @@ int main(int argc, char** argv) {
       FLAGS_bloom_bits = n;
     } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {
       FLAGS_open_files = n;
+
+    } else if (sscanf(argv[i], "--gc_ratio=%lf%c", &d, &junk) == 1) {
+      FLAGS_gc_ratio = d;
+    } else if (sscanf(argv[i], "--write_batch=%d%c", &n, &junk) == 1) {
+      FLAGS_write_batch = n;
+    // used in pm
+    } else if (strncmp(argv[i], "--pm_path=", 10) == 0) {
+      PM_PATH = argv[i] + 10;
+    // } else if (sscanf(argv[i], "--value_size=%zd%c", &length, &junk) == 1) {
+    //   VALUE_SIZE = length;
+    } else if (sscanf(argv[i], "--pm_size=%lu%c", &space, &junk) == 1) {
+      PM_SIZE = space;
+    } else if (sscanf(argv[i], "--bucket_nums=%lu%c", &space, &junk) == 1) {
+      BUCKET_NUMS = space;
+    } else if (sscanf(argv[i], "--use_pm=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      USE_PM = n;
+    } else if (sscanf(argv[i], "--flush_ssd=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLUSH_SSD = n;
+    } else if (sscanf(argv[i], "--throughput=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      Throughput = n;
+    } else if (sscanf(argv[i], "--dynamic_tree=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      DYNAMIC_TREE = n;
     } else if (strncmp(argv[i], "--db=", 5) == 0) {
       FLAGS_db = argv[i] + 5;
     } else {

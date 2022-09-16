@@ -10,7 +10,11 @@
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "leveldb/db.h"
+#include "table/pm_mem_alloc.h"
 #include "util/arena.h"
+#include "util/global.h"
+#include "bplustree/bptree.h"
+#include "table/pm_table_builder.h"
 
 namespace leveldb {
 
@@ -38,6 +42,16 @@ class MemTable {
     }
   }
 
+  uint64_t kvCount() {return kvCount_;}
+
+  void setPMAllocator(PMMemAllocator* allocator, std::atomic<uint64_t>& kv_total_){
+    allocatr_ = allocator;
+    write_.setPMAllocator(allocator);
+    write_.kvTotal(kv_total_);
+  }
+
+
+
   // Returns an estimate of the number of bytes of data in use by this
   // data structure. It is safe to call when MemTable is being modified.
   size_t ApproximateMemoryUsage();
@@ -55,13 +69,16 @@ class MemTable {
   // Typically value will be empty if type==kTypeDeletion.
   void Add(SequenceNumber seq, ValueType type, const Slice& key,
            const Slice& value);
-
+  void Add2(SequenceNumber seq, ValueType type, const Slice& key,
+           const Slice& value);
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
   // in *status and return true.
   // Else, return false.
   bool Get(const LookupKey& key, std::string* value, Status* s);
+  bool Get2(const LookupKey& key, std::string* value, Status* s);
 
+  bool Get(const LookupKey& key, std::string* value, Status* s, ReadStats& stats);
  private:
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
@@ -76,12 +93,100 @@ class MemTable {
 
   ~MemTable();  // Private since only Unref() should be used to delete it
 
+  PMMemAllocator* allocatr_ = nullptr;
   KeyComparator comparator_;
+  vPageWriteDirect write_;
   int refs_;
   Arena arena_;
   Table table_;
+  uint64_t kvCount_;
 };
 
+
+static Slice GetLengthPrefixedSlice(const char* data) {
+  uint32_t len;
+  const char* p = data;
+  p = GetVarint32Ptr(p, p + 5, &len);  // +5: we assume "p" is not corrupted
+  return Slice(p, len);
+}
+
+// Encode a suitable internal key target for "target" and return it.
+// Uses *scratch as scratch space, and the returned pointer will point
+// into this scratch space.
+static const char* EncodeKey(std::string* scratch, const Slice& target) {
+  scratch->clear();
+  PutVarint32(scratch, target.size());
+  scratch->append(target.data(), target.size());
+  return scratch->data();
+}
+
+
+class MemTableIterator : public Iterator {
+ public:
+  explicit MemTableIterator(MemTable::Table* table) : iter_(table) {}
+
+  MemTableIterator(const MemTableIterator&) = delete;
+  MemTableIterator& operator=(const MemTableIterator&) = delete;
+
+  ~MemTableIterator() override = default;
+
+  void setAlloc(PMMemAllocator* alloc){
+    alloc_ = alloc;
+  }
+
+  bool Valid() const override { return iter_.Valid(); }
+  void Seek(const Slice& k) override { iter_.Seek(EncodeKey(&tmp_, k)); }
+  void SeekToFirst() override { iter_.SeekToFirst(); }
+  void SeekToLast() override { iter_.SeekToLast(); }
+  void Next() override { iter_.Next(); }
+  void Prev() override { iter_.Prev(); }
+  Slice key() const override { return GetLengthPrefixedSlice(iter_.key()); }
+  std::tuple<uint32_t, uint16_t> valuePointer() const{
+    Slice key_slice = GetLengthPrefixedSlice(iter_.key());
+    const char *p = key_slice.data() + key_slice.size();
+    return std::make_tuple(DecodeFixed32(p), DecodeFixed16(p+4));
+  }
+  void ClearValue() {
+    Slice key_slice = GetLengthPrefixedSlice(iter_.key());
+    //TODO maybe bug
+    auto getValueFromAddr = [&](const char* p){
+      uint32_t pointer = DecodeFixed32(p);
+      uint16_t index = DecodeFixed16(p+4);
+      vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
+      vp->clrBitMap(index);
+      if (vp->nums() == 0) {
+        alloc_->freePage((char*)vp, value_t);
+      }
+      return ;
+    };
+
+    return getValueFromAddr(key_slice.data() + key_slice.size());
+  }
+  Slice value() const override {
+    if(TEST_SKIPLIST_NVM || TEST_SKIPLIST_DRAM){
+      Slice key_slice = GetLengthPrefixedSlice(iter_.key());
+      return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
+    }else{
+      Slice key_slice = GetLengthPrefixedSlice(iter_.key());
+      //TODO maybe bug
+      auto getValueFromAddr = [](const char* p){
+        uint32_t pointer = DecodeFixed32(p);
+        uint16_t index = DecodeFixed16(p+4);
+        vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
+        return vp->v(index);
+      };
+
+      return getValueFromAddr(key_slice.data() + key_slice.size());
+    }
+  }
+
+  Status status() const override { return Status::OK(); }
+
+ private:
+  MemTable::Table::Iterator iter_;
+  PMMemAllocator* alloc_;
+  std::string tmp_;  // For passing to EncodeKey
+};
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_DB_MEMTABLE_H_

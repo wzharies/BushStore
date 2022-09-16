@@ -9,6 +9,7 @@
 #include <deque>
 #include <set>
 #include <string>
+#include <memory>
 
 #include "db/dbformat.h"
 #include "db/log_writer.h"
@@ -17,6 +18,11 @@
 #include "leveldb/env.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
+#include "util/bloomfilter.h"
+#include "util/cuckoo_filter.h"
+#include "bplustree/bptree.h"
+#include "table/pm_mem_alloc.h"
+#include "util/global.h"
 
 namespace leveldb {
 
@@ -88,17 +94,21 @@ class DBImpl : public DB {
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
   struct CompactionStats {
-    CompactionStats() : micros(0), bytes_read(0), bytes_written(0) {}
+    CompactionStats() : micros(0), bytes_read(0), bytes_written(0), KeyIn(0), KeyDrop(0) {}
 
     void Add(const CompactionStats& c) {
       this->micros += c.micros;
       this->bytes_read += c.bytes_read;
       this->bytes_written += c.bytes_written;
+      this->KeyIn += c.KeyIn;
+      this->KeyDrop += c.KeyDrop;
     }
 
     int64_t micros;
     int64_t bytes_read;
     int64_t bytes_written;
+    int64_t KeyIn;
+    int64_t KeyDrop;
   };
 
   Iterator* NewInternalIterator(const ReadOptions&,
@@ -129,6 +139,17 @@ class DBImpl : public DB {
 
   Status WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  
+  Status WriteLevel0TableToPM(MemTable* mem); EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void MergeL1();
+  int PickCompactionPM();
+  
+  void checkAndSetGC();
+  bool isNeedGC();
+  void Flush();
+  Status CompactionLevel0();
+  Status CompactionLevel1();
+  Status CompactionLevel1Concurrency();
 
   Status MakeRoomForWrite(bool force /* compact even if there is room? */)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
@@ -141,6 +162,7 @@ class DBImpl : public DB {
   static void BGWork(void* db);
   void BackgroundCall();
   void BackgroundCompaction() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void CleanupCompaction(std::vector<CompactionState*> compacts);
   void CleanupCompaction(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   Status DoCompactionWork(CompactionState* compact)
@@ -148,18 +170,24 @@ class DBImpl : public DB {
 
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
+  Status InstallCompactionResults(std::vector<CompactionState*>& compacts);
   Status InstallCompactionResults(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   const Comparator* user_comparator() const {
     return internal_comparator_.user_comparator();
   }
+  
+  Status GetValueFromTree(const ReadOptions& options, const Slice& key, std::string* value);
 
   // Constant after construction
   Env* const env_;
   const InternalKeyComparator internal_comparator_;
   const InternalFilterPolicy internal_filter_policy_;
+
+public:
   const Options options_;  // options_.comparator == &internal_comparator_
+private:
   const bool owns_info_log_;
   const bool owns_cache_;
   const std::string dbname_;
@@ -174,8 +202,11 @@ class DBImpl : public DB {
   port::Mutex mutex_;
   std::atomic<bool> shutting_down_;
   port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
+  port::CondVar space_signal_ GUARDED_BY(mutex_);
+public:
   MemTable* mem_;
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
+private:
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
   WritableFile* logfile_;
   uint64_t logfile_number_ GUARDED_BY(mutex_);
@@ -197,12 +228,46 @@ class DBImpl : public DB {
 
   ManualCompaction* manual_compaction_ GUARDED_BY(mutex_);
 
+public:
   VersionSet* const versions_ GUARDED_BY(mutex_);
 
   // Have we encountered a background error in paranoid mode?
   Status bg_error_ GUARDED_BY(mutex_);
 
   CompactionStats stats_[config::kNumLevels] GUARDED_BY(mutex_);
+
+  CuckooFilter* cuckoo_filter_;
+
+  PMMemAllocator * pmAlloc_;
+  std::atomic<bool> needGC = false;
+  std::atomic<bool> flushSSD = false;
+  int gcCount = 0;
+  std::vector<std::shared_ptr<lbtree>> Table_L0_;
+  std::vector<std::shared_ptr<lbtree>> Table_LN_;
+  std::vector<std::shared_ptr<lbtree>> Table_LN_TEMP_;
+  std::vector<std::shared_ptr<BloomFilterPolicy>> bloom_filters_;
+private:
+  std::mutex mutex_l0_;
+  std::mutex mutex_l1_;
+  std::condition_variable conVar_;
+  std::mutex mergeMutex_;
+  key_type new_start_key_ = 0;
+  std::atomic<int> usage_;
+  std::atomic<uint64_t> kv_total_;
+  double valid_rate_;
+  std::thread compactionThread_;
+  std::atomic<int> lastCompactL0Time_ = 0;
+  std::atomic<int> lastCompactL1Time_ = 0;
+  std::atomic<size_t> compactL0Count_ = 2;
+  std::atomic<size_t> curMemtableSize_;
+  size_t maxMemtableSize_;
+  std::atomic<size_t> l0_num_ = 0;
+  int ratio_L0_ = 1;
+  int stop_gc_count_ = 0;
+  uint64_t gc_start_key_ = 0;
+public:
+  ReadStats readStats_;
+  WriteStats writeStats_;
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

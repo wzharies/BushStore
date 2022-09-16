@@ -18,6 +18,8 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "util/global.h"
+#include "util/env_pm.h"
 
 namespace leveldb {
 
@@ -322,9 +324,11 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
 }
 
 Status Version::Get(const ReadOptions& options, const LookupKey& k,
-                    std::string* value, GetStats* stats) {
+                    std::string* value, GetStats* stats, CuckooFilter* cuckoo_filter_) {
   stats->seek_file = nullptr;
   stats->seek_file_level = -1;
+  uint32_t file_number_max = 0;
+  uint32_t file_number_min = 9;
 
   struct State {
     Saver saver;
@@ -394,10 +398,63 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
   state.saver.user_key = k.user_key();
   state.saver.value = value;
 
-  ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
+  const uint64_t start_micros = vset_->env_->NowMicros();
 
-  return state.found ? state.s : Status::NotFound(Slice());
+  // cuckoo_filter_->Get(state.saver.user_key, &file_number_max, &file_number_min);
+  // if(file_number_max >= 10 && map_files_.count(file_number_max) > 0 &&
+  //   state.Match(&state, map_files_[file_number_max].first, map_files_[file_number_max].second)) {
+  //   if(state.found){
+  //     //printf("found in level0\n");
+  //     const uint64_t end_micros = vset_->env_->NowMicros();
+  //     vset_->micros[0] += (end_micros - start_micros);
+  //     vset_->search_count[0]++;
+  //     return state.s;
+  //   }
+  // }
+  // if(file_number_min>=1 && file_number_min <7){
+  //   ForEachOneLevel(state.saver.user_key, state.ikey, &state, &State::Match, file_number_min);
+  //   if(state.found){
+  //     //printf("found in level%d\n",file_number_min);
+  //     const uint64_t end_micros = vset_->env_->NowMicros();
+  //     vset_->micros[1] += (end_micros - start_micros);
+  //     vset_->search_count[1]++;
+  //     return state.s;
+  //   }
+  // }
+
+  ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
+  const uint64_t end_micros = vset_->env_->NowMicros();
+  vset_->micros[2] += (end_micros - start_micros);
+  vset_->search_count[2]++;
+
+  //printf("try other level\n");
+  if(state.found){
+    return state.s;
+  }
+  return Status::NotFound(Slice());
 }
+
+void Version::ForEachOneLevel(Slice user_key, Slice internal_key, void* arg,
+                                 bool (*func)(void*, int, FileMetaData*), uint64_t level) {
+  const Comparator* ucmp = vset_->icmp_.user_comparator();
+  size_t num_files = files_[level].size();
+  if (num_files == 0) 
+    return;
+
+  // Binary search to find earliest index whose largest key >= internal_key.
+  uint32_t index = FindFile(vset_->icmp_, files_[level], internal_key);
+  if (index < num_files) {
+    FileMetaData* f = files_[level][index];
+    if (ucmp->Compare(user_key, f->smallest.user_key()) < 0) {
+      // All of "f" is past any data for user_key
+    } else {
+      if (!(*func)(arg, level, f)) {
+        return;
+      }
+    }
+  }
+}
+
 
 bool Version::UpdateStats(const GetStats& stats) {
   FileMetaData* f = stats.seek_file;
@@ -726,6 +783,7 @@ class VersionSet::Builder {
       }
       f->refs++;
       files->push_back(f);
+      v->map_files_[f->number] = std::pair<uint64_t,FileMetaData*>(level,f);
     }
   }
 };
@@ -738,7 +796,7 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
       options_(options),
       table_cache_(table_cache),
       icmp_(*cmp),
-      next_file_number_(2),
+      next_file_number_(10),
       manifest_file_number_(0),  // Filled by Recover()
       last_sequence_(0),
       log_number_(0),
@@ -746,7 +804,7 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
       descriptor_file_(nullptr),
       descriptor_log_(nullptr),
       dummy_versions_(this),
-      current_(nullptr) {
+      current_(nullptr){
   AppendVersion(new Version(this));
 }
 
@@ -880,7 +938,11 @@ Status VersionSet::Recover(bool* save_manifest) {
 
   std::string dscname = dbname_ + "/" + current;
   SequentialFile* file;
-  s = env_->NewSequentialFile(dscname, &file);
+  // if(LOG_PM){
+  //   file = new PMSequentialFile(dscname.c_str());
+  // }else{
+    s = env_->NewSequentialFile(dscname, &file);
+  // }
   if (!s.ok()) {
     if (s.IsNotFound()) {
       return Status::Corruption("CURRENT points to a non-existent file",
@@ -1250,10 +1312,63 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   return result;
 }
 
+Iterator* VersionSet::getTwoLevelIterator(std::vector<FileMetaData*>& files){
+  ReadOptions options;
+  options.verify_checksums = options_->paranoid_checks;
+  options.fill_cache = false;
+  return NewTwoLevelIterator(
+            new Version::LevelFileNumIterator(icmp_, &files),
+            &GetFileIterator, table_cache_, options);
+}
+
 Compaction* VersionSet::PickCompaction() {
   Compaction* c;
-  int level;
-
+  int level = 1;
+  int next_level = 2;
+  
+  if(options_->has_pm){
+    c = new Compaction(options_, level);
+    if(current_->files_[next_level].size() == 0){
+      return c;
+    }
+    size_t i;
+    auto getInputs =  [&](){
+      for (i = 0; i < current_->files_[next_level].size() && c->inputs_[1].size() < MAX_FILE_NUM * TASK_COUNT; i++) {
+        FileMetaData* f = current_->files_[next_level][i];
+        if (compact_pointer_[next_level].empty() ||
+            icmp_.Compare(f->largest.Encode(), compact_pointer_[next_level]) > 0) {
+          c->inputs_[1].push_back(f);
+        }
+      }
+    };
+    getInputs();
+    if(c->inputs_[1].size() == 0){
+      // compact_pointer_[next_level].clear();
+      // getInputs();
+      return c;
+    }
+    assert(c->inputs_[1].size() != 0);
+    c->input_version_ = current_;
+    c->input_version_->Ref();
+    int last_index = i - c->inputs_[1].size() - 1;
+    int next_index = i;
+    if(last_index >= 0){
+      assert(current_->files_[next_level].size() > last_index);
+      c->smallest = current_->files_[next_level][last_index]->largest.Encode();
+    }
+    if(next_index < current_->files_[next_level].size()){
+      assert(next_index >= 0);
+      c->largest = current_->files_[next_level][next_index]->smallest.Encode();
+    }
+    // if(i == current_->files_[next_level].size()){
+    //   compact_pointer_[next_level] = {};
+    //   c->edit_.SetCompactPointer(next_level, c->inputs_[1].back()->largest);
+    // }else{
+    //   compact_pointer_[next_level] = c->inputs_[1].back()->largest.Encode().ToString();
+    //   c->edit_.SetCompactPointer(next_level, c->inputs_[1].back()->largest);
+    // }
+    return c;
+  }
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
   const bool size_compaction = (current_->compaction_score_ >= 1);
@@ -1498,6 +1613,7 @@ Compaction::~Compaction() {
 }
 
 bool Compaction::IsTrivialMove() const {
+  return false;
   const VersionSet* vset = input_version_->vset_;
   // Avoid a move if there is lots of overlapping grandparent data.
   // Otherwise, the move could create a parent file that will require

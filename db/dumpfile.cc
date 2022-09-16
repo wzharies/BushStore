@@ -18,6 +18,8 @@
 #include "leveldb/table.h"
 #include "leveldb/write_batch.h"
 #include "util/logging.h"
+#include "util/global.h"
+#include "util/env_pm.h"
 
 namespace leveldb {
 
@@ -55,7 +57,12 @@ Status PrintLogContents(Env* env, const std::string& fname,
                         void (*func)(uint64_t, Slice, WritableFile*),
                         WritableFile* dst) {
   SequentialFile* file;
-  Status s = env->NewSequentialFile(fname, &file);
+  Status s;
+  // if(LOG_PM){
+  //   file = new PMSequentialFile(fname.c_str());
+  // }else{
+    s = env->NewSequentialFile(fname, &file);
+  // }
   if (!s.ok()) {
     return s;
   }

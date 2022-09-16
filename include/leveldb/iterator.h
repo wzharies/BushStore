@@ -18,6 +18,7 @@
 #include "leveldb/export.h"
 #include "leveldb/slice.h"
 #include "leveldb/status.h"
+#include "leveldb/filter_policy.h"
 
 namespace leveldb {
 
