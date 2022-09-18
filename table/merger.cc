@@ -6,7 +6,7 @@
 
 namespace leveldb {
 
-namespace {
+// namespace {
 
 void MergingIterator::FindSmallest() {
   IteratorWrapper* smallest = nullptr;
@@ -15,10 +15,10 @@ void MergingIterator::FindSmallest() {
     if (child->Valid()) {
       if (smallest == nullptr) {
         smallest = child;
-        cur_level_ = i;
+        cur_file_num_ = i;
       } else if (comparator_->Compare(child->key(), smallest->key()) < 0) {
         smallest = child;
-        cur_level_ = i;
+        cur_file_num_ = i;
       }
     }
   }
@@ -39,7 +39,7 @@ void MergingIterator::FindLargest() {
   }
   current_ = largest;
 }
-}  // namespace
+// }  // namespace
 
 Iterator* NewMergingIterator(const Comparator* comparator, Iterator** children,
                              int n, uint64_t* levels) {

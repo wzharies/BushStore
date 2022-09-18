@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <random>
 #include <atomic>
+#include "leveldb/slice.h"
+
 #define TAG_SIZE (2)
 #define LID_SIZE (2)
 #define ASSOC_WAY (4)

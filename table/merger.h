@@ -5,6 +5,7 @@
 #ifndef STORAGE_LEVELDB_TABLE_MERGER_H_
 #define STORAGE_LEVELDB_TABLE_MERGER_H_
 
+#include <cstdint>
 #include "leveldb/comparator.h"
 #include "leveldb/iterator.h"
 #include "table/iterator_wrapper.h"
@@ -13,6 +14,7 @@ namespace leveldb {
 
 class Comparator;
 class Iterator;
+
 class MergingIterator : public Iterator {
  public:
   MergingIterator(const Comparator* comparator, Iterator** children, int n, uint64_t* levels)
@@ -131,9 +133,9 @@ class MergingIterator : public Iterator {
     return status;
   }
 
-  uint64_t level() const {
+  uint64_t fileNum() const {
     assert(Valid());
-    return cur_level_;
+    return levels[cur_file_num_];
   }
 
  private:
@@ -152,7 +154,7 @@ class MergingIterator : public Iterator {
   IteratorWrapper* current_;
   Direction direction_;
   uint64_t* levels;
-  uint64_t cur_level_;
+  uint64_t cur_file_num_;
 };
 
 // Return an iterator that provided the union of the data in

@@ -912,6 +912,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   }
 
   Iterator* input = versions_->MakeInputIterator(compact->compaction);
+  MergingIterator *mergeIterator = static_cast<MergingIterator*>(input);
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
@@ -1003,6 +1004,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       }
       compact->current_output()->largest.DecodeFrom(key);
       compact->builder->Add(key, input->value());
+      cuckoo_filter_->Delete(key, mergeIterator->fileNum());
       cuckoo_filter_->Put(key, compact->out_file_number);
 
       // Close output file if it is big enough
@@ -1014,7 +1016,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         }
       }
     }else{
-      cuckoo_filter_->Delete(key, compact->out_file_number);
+      cuckoo_filter_->Delete(key, mergeIterator->fileNum());
     }
 
     input->Next();

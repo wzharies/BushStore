@@ -3,9 +3,7 @@
 #include "util/cuckoo_filter.h"
 #include "db/dbformat.h"
 
-
 namespace leveldb{
-#include "cuckoo_filter.h"
 uint64_t MurmurHash64A (const void * key, int len, unsigned int seed = 0x20220601)
 {
     const uint64_t m = 0xc6a4a7935bd1e995;
@@ -124,7 +122,7 @@ void CuckooFilter::Put(Slice key, uint32_t value){
             if(bucket[i].tag.compare_exchange_strong(empty_key,tag,std::memory_order_relaxed)){
                 bucket[i].lid.store(value,std::memory_order_relaxed);
             }
-            printf("put %u %u in index: %zu pick: %d\n", tag, value, index1,i);
+            //printf("put %u %u in index: %zu pick: %d\n", tag, value, index1,i);
             return ;
         }
     }
@@ -137,12 +135,12 @@ void CuckooFilter::Put(Slice key, uint32_t value){
                 if(bucket[i].tag.compare_exchange_strong(empty_key,tag,std::memory_order_relaxed)){
                     bucket[i].lid.store(value,std::memory_order_relaxed);
                 }
-                printf("put %u %u in index: %zu pick: %d\n", tag, value, index1,i);
+                //printf("put %u %u in index: %zu pick: %d\n", tag, value, index1,i);
                 return ;
             }
         }
         if(i == ASSOC_WAY){
-            printf("need kick\n");
+            //printf("need kick\n");
             uint32_t kick_tag(tag);
             uint32_t kick_value(value);
             size_t kick_index = index2;
@@ -150,7 +148,7 @@ void CuckooFilter::Put(Slice key, uint32_t value){
                 size_t pick = rd_() % ASSOC_WAY;
                 kick_tag = bucket[pick].tag.exchange(kick_tag,std::memory_order_relaxed);
                 kick_value = bucket[pick].lid.exchange(kick_value,std::memory_order_relaxed);
-                printf("kick out %d : %d from index :%zu pick :%zu\n",kick_tag, kick_value, kick_index, pick);
+                //printf("kick out %d : %d from index :%zu pick :%zu\n",kick_tag, kick_value, kick_index, pick);
                 kick_index = IndexHash(bucket_num_, (uint32_t)(kick_index ^ (kick_tag * 0x5bd1e995)));
                 bucket = buckets_[kick_index];
                 for(int k = 0; k < ASSOC_WAY; k++){
@@ -160,8 +158,8 @@ void CuckooFilter::Put(Slice key, uint32_t value){
                         if(bucket[k].tag.compare_exchange_strong(empty_key,kick_tag,std::memory_order_relaxed)){
                             bucket[k].lid.store(kick_value,std::memory_order_relaxed);
                         }
-                        printf("kick %d times, put index :%zu pick: %d\n", j+1,kick_index, k);
-                        printf("put %u %u\n", tag, value);
+                        //printf("kick %d times, put index :%zu pick: %d\n", j+1,kick_index, k);
+                        //printf("put %u %u\n", tag, value);
                         return ;
                     }
                 }
