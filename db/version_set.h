@@ -22,6 +22,7 @@
 
 #include "db/dbformat.h"
 #include "db/version_edit.h"
+#include "leveldb/env.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
 #include "util/cuckoo_filter.h"
@@ -146,6 +147,8 @@ class Version {
   // REQUIRES: user portion of internal_key == user_key.
   void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                           bool (*func)(void*, int, FileMetaData*));
+  void ForEachOneLevel(Slice user_key, Slice internal_key, void* arg,
+                          bool (*func)(void*, int, FileMetaData*), uint64_t level);
 
   VersionSet* vset_;  // VersionSet to which this Version belongs
   Version* next_;     // Next version in linked list
@@ -195,7 +198,7 @@ class VersionSet {
 
   // Allocate and return a new file number
   uint64_t NewFileNumber() {
-    assert(next_file_number_ < 65535);
+    //assert(next_file_number_ < 65535);
     return next_file_number_++; 
   }
 
@@ -319,6 +322,9 @@ class VersionSet {
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
   std::string compact_pointer_[config::kNumLevels];
+
+  uint64_t search_count[3];
+  uint64_t micros[3];
 };
 
 // A Compaction encapsulates information about a compaction.

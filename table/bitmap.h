@@ -2,13 +2,13 @@
 #include<memory>
 
 namespace leveldb{
-
 class Bitmap{
 public:
-    Bitmap(int nums){
+    Bitmap(int nums, char* addr){
         int bitSize = (nums >> 3) + 1;
-        bitmaps_ = (char *)calloc(bitSize, sizeof(char));
-        // cur_empty_ = 0;
+        bitmaps_ = addr;
+        //bitmaps_ = (char *)calloc(bitSize, sizeof(char));
+        cur_empty_ = 0;
     };
 
     ~Bitmap(){
@@ -36,18 +36,17 @@ public:
         return (bitmaps_[charIndex] >> innerIndex) & 1;
     };
 
-    // size_t getEmpty(){
-    //     while(!get(cur_empty_)){
-    //         cur_empty_ = (cur_empty_ + 1) % nums_;
-    //     }
-    //     return cur_empty_;
-    // }
+    size_t getEmpty(){
+        while(!get(cur_empty_)){
+            cur_empty_ = (cur_empty_ + 1) % nums_;
+        }
+        return cur_empty_;
+    }
 
 
 private:
     size_t nums_;
     char * bitmaps_;
-    // size_t cur_empty_;
+    size_t cur_empty_;
 };
-
 }

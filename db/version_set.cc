@@ -321,11 +321,14 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
   }
 }
 
+
+
 Status Version::Get(const ReadOptions& options, const LookupKey& k,
                     std::string* value, GetStats* stats, CuckooFilter* cuckoo_filter_) {
   stats->seek_file = nullptr;
   stats->seek_file_level = -1;
-  uint32_t file_number;
+  uint32_t file_number_max = 0;
+  uint32_t file_number_min = 9;
 
   struct State {
     Saver saver;
@@ -395,16 +398,62 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
   state.saver.user_key = k.user_key();
   state.saver.value = value;
 
-  cuckoo_filter_->Get(state.saver.user_key,&file_number);
-  if(map_files_.count(file_number) > 0 &&
-    state.Match(&state, map_files_[file_number].first, map_files_[file_number].second)) {
-    
-  }else{
-    ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
+  const uint64_t start_micros = vset_->env_->NowMicros();
+
+  // cuckoo_filter_->Get(state.saver.user_key, &file_number_max, &file_number_min);
+  // if(file_number_max >= 10 && map_files_.count(file_number_max) > 0 &&
+  //   state.Match(&state, map_files_[file_number_max].first, map_files_[file_number_max].second)) {
+  //   if(state.found){
+  //     //printf("found in level0\n");
+  //     const uint64_t end_micros = vset_->env_->NowMicros();
+  //     vset_->micros[0] += (end_micros - start_micros);
+  //     vset_->search_count[0]++;
+  //     return state.s;
+  //   }
+  // }
+  // if(file_number_min>=1 && file_number_min <7){
+  //   ForEachOneLevel(state.saver.user_key, state.ikey, &state, &State::Match, file_number_min);
+  //   if(state.found){
+  //     //printf("found in level%d\n",file_number_min);
+  //     const uint64_t end_micros = vset_->env_->NowMicros();
+  //     vset_->micros[1] += (end_micros - start_micros);
+  //     vset_->search_count[1]++;
+  //     return state.s;
+  //   }
+  // }
+  ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
+  const uint64_t end_micros = vset_->env_->NowMicros();
+  vset_->micros[2] += (end_micros - start_micros);
+  vset_->search_count[2]++;
+
+  //printf("try other level\n");
+  if(state.found){
+    return state.s;
   }
-  
-  return state.found ? state.s : Status::NotFound(Slice());
+  return Status::NotFound(Slice());
 }
+
+void Version::ForEachOneLevel(Slice user_key, Slice internal_key, void* arg,
+                                 bool (*func)(void*, int, FileMetaData*), uint64_t level) {
+  const Comparator* ucmp = vset_->icmp_.user_comparator();
+  size_t num_files = files_[level].size();
+  if (num_files == 0) 
+    return;
+
+  // Binary search to find earliest index whose largest key >= internal_key.
+  uint32_t index = FindFile(vset_->icmp_, files_[level], internal_key);
+  if (index < num_files) {
+    FileMetaData* f = files_[level][index];
+    if (ucmp->Compare(user_key, f->smallest.user_key()) < 0) {
+      // All of "f" is past any data for user_key
+    } else {
+      if (!(*func)(arg, level, f)) {
+        return;
+      }
+    }
+  }
+}
+
 
 bool Version::UpdateStats(const GetStats& stats) {
   FileMetaData* f = stats.seek_file;
@@ -746,7 +795,7 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
       options_(options),
       table_cache_(table_cache),
       icmp_(*cmp),
-      next_file_number_(2),
+      next_file_number_(10),
       manifest_file_number_(0),  // Filled by Recover()
       last_sequence_(0),
       log_number_(0),
@@ -754,7 +803,7 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
       descriptor_file_(nullptr),
       descriptor_log_(nullptr),
       dummy_versions_(this),
-      current_(nullptr) {
+      current_(nullptr){
   AppendVersion(new Version(this));
 }
 
@@ -1233,43 +1282,42 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
-  int files_num = c->inputs_[0].size() + c->inputs_[1].size();
-  uint64_t* levels = new uint64_t[files_num];
+  //int files_num = c->inputs_[0].size() + c->inputs_[1].size();
+  const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
+  Iterator** list = new Iterator*[space];
+  uint64_t* levels = new uint64_t[space];
 
-  //const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
-  Iterator** list = new Iterator*[files_num];
-
-  //int num = 0;
+  int num = 0;
   int files_cnt = 0;
-  for (int which = 0; which < 2; which++) {
-    const std::vector<FileMetaData*>& files = c->inputs_[which];
-    for (size_t i = 0; i < files.size(); i++) {
-      list[files_cnt] = table_cache_->NewIterator(options, files[i]->number, files[i]->file_size);
-      levels[files_cnt++] = files[i]->number;
-    }
-  }
-
   // for (int which = 0; which < 2; which++) {
-  //   if (!c->inputs_[which].empty()) {
-  //     if (c->level() + which == 0) {
-  //       const std::vector<FileMetaData*>& files = c->inputs_[which];
-  //       for (size_t i = 0; i < files.size(); i++) {
-  //         //levels[num] = files[i]->number;
-  //         list[num++] = table_cache_->NewIterator(options, files[i]->number,
-  //                                                 files[i]->file_size);
-  //       }
-  //     } else {
-  //       // Create concatenating iterator for the files from this level
-  //       //levels[num] = c->level() + which;
-  //       list[num++] = NewTwoLevelIterator(
-  //           new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
-  //           &GetFileIterator, table_cache_, options);
-  //     }
+  //   const std::vector<FileMetaData*>& files = c->inputs_[which];
+  //   for (size_t i = 0; i < files.size(); i++) {
+  //     list[files_cnt] = table_cache_->NewIterator(options, files[i]->number, files[i]->file_size);
+  //     levels[files_cnt++] = files[i]->number;
   //   }
   // }
-  //assert(num <= space);
-  assert(files_cnt == files_num);
-  Iterator* result = NewMergingIterator(&icmp_, list, files_num, levels);
+
+  for (int which = 0; which < 2; which++) {
+    if (!c->inputs_[which].empty()) {
+      if (c->level() + which == 0) {
+        const std::vector<FileMetaData*>& files = c->inputs_[which];
+        for (size_t i = 0; i < files.size(); i++) {
+          levels[num] = files[i]->number;
+          list[num++] = table_cache_->NewIterator(options, files[i]->number,
+                                                  files[i]->file_size);
+        }
+      } else {
+        // Create concatenating iterator for the files from this level
+        levels[num] = c->level() + which;
+        list[num++] = NewTwoLevelIterator(
+            new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
+            &GetFileIterator, table_cache_, options);
+      }
+    }
+  }
+  assert(num <= space);
+  //assert(files_cnt == files_num);
+  Iterator* result = NewMergingIterator(&icmp_, list, num, levels);
   delete[] list;
   return result;
 }
@@ -1522,6 +1570,7 @@ Compaction::~Compaction() {
 }
 
 bool Compaction::IsTrivialMove() const {
+  return false;
   const VersionSet* vset = input_version_->vset_;
   // Avoid a move if there is lots of overlapping grandparent data.
   // Otherwise, the move could create a parent file that will require

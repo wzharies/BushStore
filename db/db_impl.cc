@@ -185,7 +185,7 @@ Status DBImpl::NewDB() {
   VersionEdit new_db;
   new_db.SetComparatorName(user_comparator()->Name());
   new_db.SetLogNumber(0);
-  new_db.SetNextFile(2);
+  new_db.SetNextFile(10);
   new_db.SetLastSequence(0);
 
   const std::string manifest = DescriptorFileName(dbname_, 1);
@@ -536,7 +536,8 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     const Slice min_user_key = meta.smallest.user_key();
     const Slice max_user_key = meta.largest.user_key();
     if (base != nullptr) {
-      level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
+      //level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
+      level = 0;
     }
     edit->AddFile(level, meta.number, meta.file_size, meta.smallest,
                   meta.largest);
@@ -1004,9 +1005,11 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       }
       compact->current_output()->largest.DecodeFrom(key);
       compact->builder->Add(key, input->value());
-      cuckoo_filter_->Delete(key, mergeIterator->fileNum());
-      cuckoo_filter_->Put(key, compact->out_file_number);
-
+      // cuckoo_filter_->Delete(key, mergeIterator->fileNum());
+      // cuckoo_filter_->Put(key, compact->out_file_number);
+      if(mergeIterator->fileNum() != compact->compaction->level() + 1){
+        cuckoo_filter_->Update(ikey.user_key, mergeIterator->fileNum(), compact->compaction->level() + 1);
+      }
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=
           compact->compaction->MaxOutputFileSize()) {
@@ -1016,7 +1019,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         }
       }
     }else{
-      cuckoo_filter_->Delete(key, mergeIterator->fileNum());
+      cuckoo_filter_->Delete(ikey.user_key, mergeIterator->fileNum());
     }
 
     input->Next();

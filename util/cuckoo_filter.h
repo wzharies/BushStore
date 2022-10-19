@@ -14,7 +14,7 @@
 #define TAG_SIZE (2)
 #define LID_SIZE (2)
 #define ASSOC_WAY (4)
-#define MAX_KICK (100)
+#define MAX_KICK (50)
 
 namespace leveldb {
 
@@ -29,7 +29,9 @@ class CuckooFilter {
 public:
     CuckooFilter(uint32_t bucket_num);
     void Get(Slice key, uint32_t* value);
+    void Get(Slice key, uint32_t* value_max, uint32_t* value_min);
     void Put(Slice key, uint32_t value);
+    void Update(Slice key, uint32_t old_value, uint32_t new_value);
     void Delete(Slice key);
     void Delete(Slice key, uint32_t value);
     void GenerateIndexTagHash(Slice key, size_t *index1, size_t *index2, uint32_t *tag);

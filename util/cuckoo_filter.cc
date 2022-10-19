@@ -69,9 +69,9 @@ void CuckooFilter::GenerateIndexTagHash(Slice key, size_t *index1, size_t *index
     if(rd_() % 2 == 0){
         std::swap(*index1, *index2);
     }
-    if(*index1 != IndexHash(bucket_num_, (uint32_t)(*index2 ^ ((*tag) * 0x5bd1e995)))){
-        printf("index1 != index2\n");
-    }
+    // if(*index1 != IndexHash(bucket_num_, (uint32_t)(*index2 ^ ((*tag) * 0x5bd1e995)))){
+    //     printf("index1 != index2\n");
+    // }
 }
 
 CuckooFilter::CuckooFilter(uint32_t bucket_num){
@@ -82,156 +82,146 @@ CuckooFilter::CuckooFilter(uint32_t bucket_num){
         buckets_[i] = &slots_[i * ASSOC_WAY];
     }
 }
-
+//优先寻找大于10的最大的和小于10的最小的。
 void CuckooFilter::Get(Slice key, uint32_t* value){
+    //return;
     uint32_t tag;
-    size_t index1, index2;
+    size_t index[2];
     int i;
-    GenerateIndexTagHash(key, &index1, &index2, &tag);
-    uint32_t max_value = 0;
-    struct cuckoo_slot* bucket = buckets_[index1];
-    for(i = 0; i < ASSOC_WAY; i++){
-        uint32_t probeTag = bucket[i].tag.load(std::memory_order_relaxed);
-        if(probeTag == tag){
-            max_value = std::max(max_value, bucket[i].lid.load(std::memory_order_relaxed));
-        }
-    }
-    if(i == ASSOC_WAY){
-        bucket = buckets_[index2];
+    struct cuckoo_slot* bucket;
+    GenerateIndexTagHash(key, &index[0], &index[1], &tag);
+    for(int k = 0;k < 2; k++){
+        bucket = buckets_[index[k]];
         for(i = 0; i < ASSOC_WAY; i++){
-            uint32_t probeTag = bucket[i].tag.load(std::memory_order_relaxed);
-            if(probeTag == tag){
-                max_value = std::max(max_value, bucket[i].lid.load(std::memory_order_relaxed));
-            }
-        }
-    }
-    *value = max_value;
-}
-void CuckooFilter::Put(Slice key, uint32_t value){
-    uint32_t tag;
-    size_t index1, index2;
-    int i;
-    uint32_t empty_key = 0;
-    GenerateIndexTagHash(key, &index1, &index2, &tag);
-
-    struct cuckoo_slot* bucket = buckets_[index1];
-    for(i = 0; i < ASSOC_WAY; i++){
-        uint32_t probeTag = bucket[i].tag.load(std::memory_order_relaxed);
-        uint32_t probeLid = bucket[i].lid.load(std::memory_order_relaxed);
-        if(probeTag == 0 && probeLid == 0){
-            if(bucket[i].tag.compare_exchange_strong(empty_key,tag,std::memory_order_relaxed)){
-                bucket[i].lid.store(value,std::memory_order_relaxed);
-            }
-            //printf("put %u %u in index: %zu pick: %d\n", tag, value, index1,i);
-            return ;
-        }
-    }
-    if(i == ASSOC_WAY){
-        bucket = buckets_[index2];
-        for(i = 0; i < ASSOC_WAY; i++){
-            uint32_t probeTag = bucket[i].tag.load(std::memory_order_relaxed);
-            uint32_t probeLid = bucket[i].lid.load(std::memory_order_relaxed);
-            if(probeTag == 0 && probeLid == 0){
-                if(bucket[i].tag.compare_exchange_strong(empty_key,tag,std::memory_order_relaxed)){
-                    bucket[i].lid.store(value,std::memory_order_relaxed);
-                }
-                //printf("put %u %u in index: %zu pick: %d\n", tag, value, index1,i);
+            if(bucket[i].tag.load(std::memory_order_relaxed) == tag){
+                *value = bucket[i].lid.load(std::memory_order_relaxed);
+                //printf("update %u %u %u\n", tag, old_value, new_value);
                 return ;
             }
         }
-        if(i == ASSOC_WAY){
-            //printf("need kick\n");
-            uint32_t kick_tag(tag);
-            uint32_t kick_value(value);
-            size_t kick_index = index2;
-            for(int j = 0; j < MAX_KICK; j++){
-                size_t pick = rd_() % ASSOC_WAY;
-                kick_tag = bucket[pick].tag.exchange(kick_tag,std::memory_order_relaxed);
-                kick_value = bucket[pick].lid.exchange(kick_value,std::memory_order_relaxed);
-                //printf("kick out %d : %d from index :%zu pick :%zu\n",kick_tag, kick_value, kick_index, pick);
-                kick_index = IndexHash(bucket_num_, (uint32_t)(kick_index ^ (kick_tag * 0x5bd1e995)));
-                bucket = buckets_[kick_index];
-                for(int k = 0; k < ASSOC_WAY; k++){
-                    uint32_t probeTag = bucket[k].tag.load(std::memory_order_relaxed);
-                    uint32_t probeLid = bucket[k].lid.load(std::memory_order_relaxed);
-                    if(probeTag == 0 && probeLid == 0){
-                        if(bucket[k].tag.compare_exchange_strong(empty_key,kick_tag,std::memory_order_relaxed)){
-                            bucket[k].lid.store(kick_value,std::memory_order_relaxed);
-                        }
-                        //printf("kick %d times, put index :%zu pick: %d\n", j+1,kick_index, k);
-                        //printf("put %u %u\n", tag, value);
-                        return ;
-                    }
-                }
+    }
+    //printf("fail get %u %u %u\n", tag);
+}
+
+//优先寻找大于10的最大的和小于10的最小的。
+void CuckooFilter::Get(Slice key, uint32_t* value_max, uint32_t* value_min){
+    //return;
+    uint32_t tag;
+    size_t index[2];
+    int i;
+    struct cuckoo_slot* bucket;
+    GenerateIndexTagHash(key, &index[0], &index[1], &tag);
+    for(int k = 0;k < 2; k++){
+        bucket = buckets_[index[k]];
+        for(i = 0; i < ASSOC_WAY; i++){
+            if(bucket[i].tag.load(std::memory_order_relaxed) == tag){
+                *value_max = std::max(*value_max, bucket[i].lid.load(std::memory_order_relaxed));
+                *value_min = std::min(*value_min, bucket[i].lid.load(std::memory_order_relaxed));
             }
-            printf("MAX KICK!!!\n");
+        }
+    }
+    //printf("get %u %u %u\n", tag, *value_max, *value_min);
+}
+
+void CuckooFilter::Put(Slice key, uint32_t value){
+    //return;
+    uint32_t tag;
+    size_t index[2];
+    int i;
+    struct cuckoo_slot* bucket;
+    uint32_t empty_key = 0;
+    GenerateIndexTagHash(key, &index[0], &index[1], &tag);
+
+    for(int k = 0;k < 2; k++){
+        bucket = buckets_[index[k]];
+        for(i = 0; i < ASSOC_WAY; i++){
+            if(bucket[i].tag.load(std::memory_order_relaxed) == 0 && bucket[i].lid.load(std::memory_order_relaxed) == 0){
+                bucket[i].tag.store(tag,std::memory_order_relaxed);
+                bucket[i].lid.store(value,std::memory_order_relaxed);
+                //printf("put %u %u\n", tag, value);
+                return ;
+            }
+        }
+    }
+    uint32_t kick_tag(tag);
+    uint32_t kick_value(value);
+    size_t kick_index = index[1];
+    for(int j = 0; j < MAX_KICK * 2; j++){
+        size_t pick = rd_() % ASSOC_WAY;
+        kick_tag = bucket[pick].tag.exchange(kick_tag,std::memory_order_relaxed);
+        kick_value = bucket[pick].lid.exchange(kick_value,std::memory_order_relaxed);
+        // if(j >= MAX_KICK){
+        //     printf("kick out %d : %d from index :%zu pick :%zu\n",kick_tag, kick_value, kick_index, pick);
+        // }
+        //printf("kick out %d : %d from index :%zu pick :%zu\n",kick_tag, kick_value, kick_index, pick);
+        kick_index = IndexHash(bucket_num_, (uint32_t)(kick_index ^ (kick_tag * 0x5bd1e995)));
+        bucket = buckets_[kick_index];
+        for(int k = 0; k < ASSOC_WAY; k++){
+            if(bucket[k].tag.load(std::memory_order_relaxed) == 0 && bucket[k].lid.load(std::memory_order_relaxed) == 0){
+                bucket[k].tag.store(kick_tag,std::memory_order_relaxed);
+                bucket[k].lid.store(kick_value,std::memory_order_relaxed);
+                //printf("kick %d times, put index :%zu pick: %d\n", j+1,kick_index, k);
+                //printf("put %u %u\n", tag, value);
+                return ;
+            }
         }
     }
 }
+
+void CuckooFilter::Update(Slice key, uint32_t old_value, uint32_t new_value){
+    //return;
+    uint32_t tag;
+    size_t index[2];
+    int i;
+    struct cuckoo_slot* bucket;
+    GenerateIndexTagHash(key, &index[0], &index[1], &tag);
+    for(int k = 0;k < 2; k++){
+        bucket = buckets_[index[k]];
+        for(i = 0; i < ASSOC_WAY; i++){
+            if(bucket[i].tag.load(std::memory_order_relaxed) == tag && bucket[i].lid.load(std::memory_order_relaxed) == old_value){
+                bucket[i].lid.store(new_value,std::memory_order_relaxed);
+                //printf("update %u %u %u\n", tag, old_value, new_value);
+                return ;
+            }
+        }
+    }
+    printf("fail update %u %u %u\n", tag, old_value, new_value);
+}
+
 void CuckooFilter::Delete(Slice key){
     uint32_t tag;
-    size_t index1, index2;
+    size_t index[2];
     int i;
-    GenerateIndexTagHash(key, &index1, &index2, &tag);
-
-    struct cuckoo_slot* bucket = buckets_[index1];
-    for(i = 0; i < ASSOC_WAY; i++){
-        uint32_t probeTag = bucket[i].tag.load(std::memory_order_relaxed);
-        if(probeTag == tag){
-            if(bucket[i].tag.compare_exchange_strong(tag,0,std::memory_order_relaxed)){
-                bucket[i].lid.store(0,std::memory_order_relaxed);
-            }
-            return ;
-        }
-    }
-    if(i == ASSOC_WAY){
-        bucket = buckets_[index2];
+    struct cuckoo_slot* bucket;
+    GenerateIndexTagHash(key, &index[0], &index[1], &tag);
+    for(int k = 0;k < 2; k++){
+        bucket = buckets_[index[k]];
         for(i = 0; i < ASSOC_WAY; i++){
-            uint32_t probeTag = bucket[i].tag.load(std::memory_order_relaxed);
-            if(probeTag == tag){
-                if(bucket[i].tag.compare_exchange_strong(tag,0,std::memory_order_relaxed)){
-                    bucket[i].lid.store(0,std::memory_order_relaxed);
-                }
+            if(bucket[i].tag.load(std::memory_order_relaxed) == tag){
+                bucket[i].tag.store(0,std::memory_order_relaxed);
+                bucket[i].lid.store(0,std::memory_order_relaxed);
                 return ;
             }
-        }
-        if(i == ASSOC_WAY){
-            printf("don't find it\n");
         }
     }
 }
 void CuckooFilter::Delete(Slice key, uint32_t value){
+    //return;
     uint32_t tag;
-    size_t index1, index2;
+    size_t index[2];
     int i;
-    GenerateIndexTagHash(key, &index1, &index2, &tag);
-
-    struct cuckoo_slot* bucket = buckets_[index1];
-    for(i = 0; i < ASSOC_WAY; i++){
-        uint32_t probeTag = bucket[i].tag.load(std::memory_order_relaxed);
-        uint32_t probeLid = bucket[i].lid.load(std::memory_order_relaxed);
-        if(probeTag == tag && probeLid == value){
-            if(bucket[i].tag.compare_exchange_strong(tag,0,std::memory_order_relaxed)){
-                bucket[i].lid.store(0,std::memory_order_relaxed);
-            }
-            return ;
-        }
-    }
-    if(i == ASSOC_WAY){
-        bucket = buckets_[index2];
+    struct cuckoo_slot* bucket;
+    GenerateIndexTagHash(key, &index[0], &index[1], &tag);
+    for(int k = 0;k < 2; k++){
+        bucket = buckets_[index[k]];
         for(i = 0; i < ASSOC_WAY; i++){
-            uint32_t probeTag = bucket[i].tag.load(std::memory_order_relaxed);
-            uint32_t probeLid = bucket[i].lid.load(std::memory_order_relaxed);
-            if(probeTag == tag && probeLid == value){
-                if(bucket[i].tag.compare_exchange_strong(tag,0,std::memory_order_relaxed)){
-                    bucket[i].lid.store(0,std::memory_order_relaxed);
-                }
+            if(bucket[i].tag.load(std::memory_order_relaxed) == tag && bucket[i].lid.load(std::memory_order_relaxed) == value){
+                bucket[i].tag.store(0,std::memory_order_relaxed);
+                bucket[i].lid.store(0,std::memory_order_relaxed);
                 return ;
             }
         }
-        if(i == ASSOC_WAY){
-            printf("Delete don't find it\n");
-        }
     }
+    printf("Delete don't find it %u %u\n",tag, value);
 }
 }

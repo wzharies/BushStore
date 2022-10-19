@@ -31,10 +31,11 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     TableBuilder* builder = new TableBuilder(options, file);
     meta->smallest.DecodeFrom(iter->key());
     Slice key;
+    Slice user_key;
     for (; iter->Valid(); iter->Next()) {
       key = iter->key();
       builder->Add(key, iter->value());
-      cuckoo_filter->Put(key, meta->number);
+      cuckoo_filter->Put(ExtractUserKey(key), meta->number);
     }
     if (!key.empty()) {
       meta->largest.DecodeFrom(key);

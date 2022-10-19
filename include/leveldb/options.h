@@ -6,6 +6,7 @@
 #define STORAGE_LEVELDB_INCLUDE_OPTIONS_H_
 
 #include <cstddef>
+#include <string>
 
 #include "leveldb/export.h"
 
@@ -141,7 +142,12 @@ struct LEVELDB_EXPORT Options {
   // NewBloomFilterPolicy() here.
   const FilterPolicy* filter_policy = nullptr;
 
-  int bucket_nums = 0x100000;
+  int bucket_nums = 0x1000000;
+
+  const std::string pm_path = "/tmp/pm_test/";
+  const size_t key_size_ = 16;
+  const size_t value_size_ = 1024;
+  const size_t extent_size_ = 1024 * 1024 * 1024;
 };
 
 // Options that control read operations

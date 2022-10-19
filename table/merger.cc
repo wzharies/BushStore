@@ -46,8 +46,8 @@ Iterator* NewMergingIterator(const Comparator* comparator, Iterator** children,
   assert(n >= 0);
   if (n == 0) {
     return NewEmptyIterator();
-  } else if (n == 1) {
-    return children[0];
+  // } else if (n == 1) {
+  //   return children[0];
   } else {
     return new MergingIterator(comparator, children, n, levels);
   }
