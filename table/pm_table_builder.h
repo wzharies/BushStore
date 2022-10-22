@@ -11,25 +11,19 @@ namespace leveldb{
 
 class PMTableBuilder{
 public:
-    PMTableBuilder(PMMemAllocator* pm_alloc,
-                   FileEntry* file,
-                   char* raw);
+    PMTableBuilder(PMMemAllocator* pm_alloc);
     ~PMTableBuilder();
     void Add(const Slice& key, const Slice& value);
     Status Finish();
 
-    uint64_t GetFileSize(){
-        return offset_;
-    }
-
-
-
+    // uint64_t GetFileSize(){
+    //     return offset_;
+    // }
 
 private:
     flush_kpage();
     flush_vpage();
-    //NvmCfModule * nvm_cf_;
-    //FileEntry* file_;
+
     PMMemAllocator* pm_alloc_;
     char* key_raw_; //pm
     char* value_raw_; //pm
@@ -44,7 +38,6 @@ private:
     uint64_t values_num_;
     uint64_t key_offset_;
     uint64_t value_offset_;
-
 
     uint64_t begin_offset_;
     uint64_t keys_meta_size_;

@@ -31,6 +31,7 @@
 #include "table/block.h"
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
+#include "table/pm_table_builder.h"
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -504,6 +505,36 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
 
   return status;
 }
+Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
+  mutex_.AssertHeld();
+  const uint64_t start_micros = env_->NowMicros(); 
+  Iterator* iter = mem->NewIterator();
+  Status s;
+  {
+    mutex_.Unlock();
+    PMTableBuilder* pb = new PMTableBuilder();
+    iter->SeekToFirst();
+    if(iter->Valid()){
+      Slice key;
+      for (; iter->Valid(); iter->Next()) {
+        key = iter->key();
+        pb->Add(key, iter->value());
+        //cuckoo_filter->Put(ExtractUserKey(key), meta->number);
+      }
+      s = pb->Finish();
+    }
+    delete pb;
+    mutex_.Lock();
+  }
+
+  delete iter;
+  int level = 0;
+  CompactionStats stats;
+  stats.micros = env_->NowMicros() - start_micros;
+  stats.bytes_written = meta.file_size;
+  stats_[level].Add(stats);
+  return s;
+}
 
 Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
                                 Version* base) {
@@ -558,7 +589,11 @@ void DBImpl::CompactMemTable() {
   VersionEdit edit;
   Version* base = versions_->current();
   base->Ref();
-  Status s = WriteLevel0Table(imm_, &edit, base);
+  if(options_.use_pm_){
+    Status s = WriteLevel0TableToPM(imm_);
+  }else{
+    Status s = WriteLevel0Table(imm_, &edit, base);
+  }
   base->Unref();
 
   if (s.ok() && shutting_down_.load(std::memory_order_acquire)) {
@@ -708,6 +743,7 @@ void DBImpl::BackgroundCompaction() {
 
   if (imm_ != nullptr) {
     CompactMemTable();
+    //CompactMemTableToPM();
     return;
   }
 

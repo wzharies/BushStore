@@ -29,7 +29,7 @@ inline uint32_t fnv1a_32(const void *input, size_t len) {
     }
     return hash;
 }
-PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc, FileEntry* file, char* raw){
+PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc){
     pm_alloc_ = pm_alloc;
     key_buf_ = new char[max_size_];
     value_buf_ = new char[max_size_];
@@ -44,7 +44,8 @@ void PMTableBuilder::flush_kpage(){
 }
 
 void PMTableBuilder::flush_vpage(){
-    
+    pmem_memcpy_persist(value_raw_, value_buf_, pm_alloc->GetvPageSize());
+
 }
 
 void PMTableBuilder::Add(const Slice& key, const Slice& value){
@@ -90,49 +91,8 @@ void PMTableBuilder::Add(const Slice& key, const Slice& value){
 }
 
 Status PMTableBuilder::Finish(){
-    file_->keys_num = keys_num_;
-    file_->keys_meta = new KeysMetadata[keys_num_];
-    int index =0;
-    for(auto key_ : first_indexs_){
-        file_->keys_meta[index].key = key_->key;
-        file_->keys_meta[index].offset=key_->offset;
-        file_->keys_meta[index].size = key_->size;
-        index++;
-    }
-
-    //nvm_cf_->UpdateKeyNext(file_);
-    RECORD_LOG("finish L0 table:%lu keynum:%lu size:%2.f MB\n",file_->filenum,file_->keys_num,1.0*offset_/1048576);
-
-    std::string metadatas;
-    for(unsigned i=0;i < file_->keys_num;i++){
-        Slice key = file_->keys_meta[i].key.Encode();
-        PutFixed64(&metadatas,key.size());
-        metadatas.append(key.data(),key.size());
-        PutFixed32(&metadatas,file_->keys_meta[i].next);
-        PutFixed64(&metadatas,file_->keys_meta[i].offset);
-        PutFixed64(&metadatas,file_->keys_meta[i].size);
-    }
-    if((offset_ + metadatas.size()) > max_size_){
-        printf("error:write l0 sstable's metadata size over!size:%lu max:%lu\n",offset_ + metadatas.size(),max_size_);
-        return Status::IOError();
-    }
-
-    keys_meta_size_ = metadatas.size();
-
-    memcpy(buf_ + offset_, metadatas.c_str(), metadatas.size());
-
-    //memcpy(raw_ + offset_,metadatas.c_str(),metadatas.size());
-    pmem_memcpy_persist(raw_ , buf_, offset_ + keys_meta_size_);  //libpmem api
-    RECORD_LOG("finish L0 table:%lu keynum:%lu size:%.2f MB metadata:%.2f MB\n",file_->filenum,file_->keys_num,1.0*offset_/1048576,metadatas.size()/1048576.0);
-    /* std::string buf;
-    int32_t a = -1;
-    PutFixed32(&buf,a);
-    printf("buf:%s   \n",buf.c_str());
-    int32_t b = 0;
-    b = DecodeFixed32(buf.c_str());
-    printf("b:%d   \n",b);*/
-
-    
+    flush_key();
+    flush_value();
     return Status();
 
 }
