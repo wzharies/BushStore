@@ -9,7 +9,7 @@ project(leveldb VERSION 1.23.0 LANGUAGES C CXX)
 # C standard can be overridden when this is used as a sub-project.
 if(NOT CMAKE_C_STANDARD)
   # This project can use C11, but will gracefully decay down to C89.
-  set(CMAKE_C_STANDARD 11)
+  set(CMAKE_C_STANDARD 17)
   set(CMAKE_C_STANDARD_REQUIRED OFF)
   set(CMAKE_C_EXTENSIONS OFF)
 endif(NOT CMAKE_C_STANDARD)
@@ -17,7 +17,7 @@ endif(NOT CMAKE_C_STANDARD)
 # C++ standard can be overridden when this is used as a sub-project.
 if(NOT CMAKE_CXX_STANDARD)
   # This project requires C++11.
-  set(CMAKE_CXX_STANDARD 11)
+  set(CMAKE_CXX_STANDARD 17)
   set(CMAKE_CXX_STANDARD_REQUIRED ON)
   set(CMAKE_CXX_EXTENSIONS OFF)
 endif(NOT CMAKE_CXX_STANDARD)
@@ -191,6 +191,22 @@ target_sources(leveldb
     "util/options.cc"
     "util/random.h"
     "util/status.cc"
+    "bplustree/bp_iterator.h"
+    "bplustree/bp_iterator.cc"
+    "bplustree/bp_merge_iterator.h"
+    "bplustree/bptree.h"
+    "bplustree/bptree.cc"
+    "bplustree/keyinput.h"
+    "bplustree/mempool.h"
+    "bplustree/mempool.cc"
+    "bplustree/nodepref.h"
+    "bplustree/nvm-common.h"
+    "bplustree/nvm-common.cc"
+    "bplustree/performance.h"
+    "bplustree/tree_api.hpp"
+    "bplustree/tree.cc"
+    "bplustree/tree.h"
+
 
   # Only CMake 3.3+ supports PUBLIC sources in targets exported by "install".
   $<$<VERSION_GREATER:CMAKE_VERSION,3.2>:PUBLIC>

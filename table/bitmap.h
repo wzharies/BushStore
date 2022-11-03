@@ -1,4 +1,5 @@
-#program once
+#ifndef STORAGE_LEVELDB_TABLE_BITMAP_H_
+#define STORAGE_LEVELDB_TABLE_BITMAP_H_
 #include<memory>
 
 namespace leveldb{
@@ -50,3 +51,5 @@ private:
     size_t cur_empty_;
 };
 }
+
+#endif 

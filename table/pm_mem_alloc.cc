@@ -12,12 +12,12 @@ namespace leveldb {
 PMMemAllocator::PMMemAllocator() {
   kPage_slot_count_ = 256 / 6;
   kPage_size_ =
-      SuitablePageSize(256 + kPage_slot_count_ * (8 + Options.key_size));
-  kPage_count_ = Options.extent_size_ / (kPage_size_ + 1);
+      SuitablePageSize(256 + kPage_slot_count_ * (8 + options_.key_size));
+  kPage_count_ = options_.extent_size_ / (kPage_size_ + 1);
   vPage_slot_count_ = (256 - 16) / 2;
   vPage_size_ =
-      SuitablePageSize(256 + vPage_slot_count_ * (8 + Options.value_size));
-  vPage_count_ = Options.extent_size_ / (vPage_size_ + 1);
+      SuitablePageSize(256 + vPage_slot_count_ * (8 + options_.value_size));
+  vPage_count_ = options_.extent_size_ / (vPage_size_ + 1);
 }
 
 char* PMMemAllocator::GetNewPage(ExtentType type) {
@@ -41,11 +41,11 @@ char* PMMemAllocator::GetNewPage(ExtentType type) {
 
 PMExtent* PMMemAllocator::NewExtent(ExtentType type) {
   if (type == key_t) {
-    PMExtent* pe = new PMExtent(kPage_count_, kPage_size_, new_extent_id_++);
+    PMExtent* pe = new PMExtent(kPage_count_, kPage_size_, new_extent_id_++, options_);
     Kpage.push_back(pe);
     return pe;
   } else {
-    PMExtent* pe = new PMExtent(vPage_count_, vPage_size_, new_extent_id_++);
+    PMExtent* pe = new PMExtent(vPage_count_, vPage_size_, new_extent_id_++, options_);
     Vpage.push_back(pe);
     return pe;
   }

@@ -18,6 +18,8 @@
 #include "port/port.h"
 #include "port/thread_annotations.h"
 #include "util/cuckoo_filter.h"
+#include "bplustree/bptree.h"
+#include "table/pm_mem_alloc.h"
 
 namespace leveldb {
 
@@ -133,6 +135,10 @@ class DBImpl : public DB {
   
   Status WriteLevel0TableToPM(MemTable* mem); EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
+  int PickCompactionPM();
+  
+  bool isNeedGC();
+  Status CompactionPM(int level);
 
   Status MakeRoomForWrite(bool force /* compact even if there is room? */)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
@@ -209,6 +215,10 @@ class DBImpl : public DB {
   CompactionStats stats_[config::kNumLevels] GUARDED_BY(mutex_);
 
   CuckooFilter* cuckoo_filter_;
+
+  PMMemAllocator * pmAlloc_;
+  std::vector<lbtree*> Table_L0_;
+  std::vector<lbtree*> Table_LN_;
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

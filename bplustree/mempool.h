@@ -267,7 +267,7 @@ public:
      			return;
    		}
    	#endif
-   		delete p;
+   		delete (char *)p;
     #else
       *((char **)p) = mempool_free_node;
       mempool_free_node = (char *)p;

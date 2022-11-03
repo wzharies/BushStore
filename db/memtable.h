@@ -38,6 +38,8 @@ class MemTable {
     }
   }
 
+  uint64_t kvCount() {return kvCount_;}
+
   // Returns an estimate of the number of bytes of data in use by this
   // data structure. It is safe to call when MemTable is being modified.
   size_t ApproximateMemoryUsage();
@@ -80,6 +82,7 @@ class MemTable {
   int refs_;
   Arena arena_;
   Table table_;
+  uint64_t kvCount_;
 };
 
 }  // namespace leveldb

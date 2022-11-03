@@ -468,7 +468,7 @@ int lbtree::bulkload(int keynum, keyInput *input, float bfill)
     // 6. build the top nonleaf nodes
     bta[0].top_level = bulkloadToptree(top_ptrs, top_keys, num_nodes, bfill,
                                        level, 31, bta[0].pfirst, bta[0].n_nodes);
-
+ 
     tree_meta->root_level = bta[0].top_level;
     tree_meta->tree_root = bta[0].pfirst[tree_meta->root_level];
     tree_meta->setFirstLeaf(bta[0].pfirst[0]);

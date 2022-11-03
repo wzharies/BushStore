@@ -144,10 +144,10 @@ struct LEVELDB_EXPORT Options {
 
   int bucket_nums = 0x1000000;
 
-  const std::string pm_path = "/tmp/pm_test/";
-  const size_t key_size_ = 16;
-  const size_t value_size_ = 1024;
-  const size_t extent_size_ = 1024 * 1024 * 1024;
+  std::string pm_path = "/tmp/pm_test/";
+  size_t key_size_ = 16;
+  size_t value_size_ = 1024;
+  size_t extent_size_ = 1024 * 1024 * 1024;
   bool use_pm_ = true;
 };
 

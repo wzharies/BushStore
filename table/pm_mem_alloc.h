@@ -1,5 +1,5 @@
-
-#pragma once
+#ifndef STORAGE_LEVELDB_TABLE_PM_MEM_ALLOC_H_
+#define STORAGE_LEVELDB_TABLE_PM_MEM_ALLOC_H_
 #include <memory>
 #include <string>
 #include <vector>
@@ -16,15 +16,15 @@ namespace leveldb {
 enum ExtentType {
   key_t,
   value_t
-}
+};
 
 class PMExtent {
-  PMExtent(uint64_t page_count, uint64_t page_size, uint64_t extent_id) {
+  PMExtent(uint64_t page_count, uint64_t page_size, uint64_t extent_id, const Options &options) {
     std::string path =
-        Options.pm_path + "extent" + std::to_string(extent_id) + ".edb";
+        options.pm_path + "extent" + std::to_string(extent_id) + ".edb";
     /* create a pmem file and memory map it */
     if ((pmem_addr_ =
-             pmem_map_file(path, Options.extent_size_, PMEM_FILE_CREATE, 0666,
+             pmem_map_file(path.c_str(), options.extent_size_, PMEM_FILE_CREATE, 0666,
                            &mapped_len_, &is_pmem_)) == NULL) {
       perror("pmem_map_file");
       exit(1);
@@ -68,7 +68,7 @@ class PMExtent {
 
 class PMMemAllocator {
  public:
-  PMMemAllocator();
+  PMMemAllocator(Options &options) : options_(options){};
   ~PMMemAllocator();
   const void* PmAlloc(size_t pm_len);
   char* GetNewPage(ExtentType type);
@@ -76,6 +76,7 @@ class PMMemAllocator {
   uint64_t GetVpageSize() { return vPage_size_; }
 
  private:
+  Options &options_;
   PMExtent* NewExtent(ExtentType type);
   uint64_t SuitablePageSize(uint64_t page_size);
   uint64_t new_extent_id_;
@@ -90,3 +91,4 @@ class PMMemAllocator {
 };
 
 }  // namespace leveldb
+#endif
