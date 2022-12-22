@@ -389,22 +389,24 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
         bnode *node = (bnode*)pages[i][0];
         //start和end在一个page的需要特殊判断。
         if(pages[i].size() == 1){
-            //大于等于start的需要删除，search找到
+            //包括first也需要删除掉，需要删除[firrst ,j)中的所有，找到大于等于first的值
             int first = node->search(start);
             int j;
-            for(j = node->num() - 1; j >= first; j ++){
+            for(j = node->num(); j >= first; j--){
                 if(node->k(j) < end){
                     if(endIsDeleted){
                         j = j + 1;
                     }else{
                         node->k(j) = new_start;
                     }
-                    for(int k = j; k < node->num(); k++){
-                        node->k(k - j + first) = node->k(k);
-                        node->ch(k - j + first) = node->ch(k);
+                    if(j <= node->num()){
+                        for(int k = j; k <= node->num(); k++){
+                            node->k(k - j + first) = node->k(k);
+                            node->ch(k - j + first) = node->ch(k);
+                        }
                     }
-                    //删掉了j+1个
-                    node->num() = node->num() - j + first;
+                    //删掉了j - first个
+                    node->num() = node->num() - (j - first);
                     break;
                 }
             }
@@ -426,17 +428,17 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                 //如果没有要删除的，则会分裂成两个节点，维护newSplit;
             }
         }else{
-            //删除大于等于start的值
+            //删除大于等于start的值, 删除[first, )的值
             int new_count = node->search(start) - 1;
             //node->num() = new_count;
 
             for(int j = 1; j < pages[i].size() - 1; j++){
                 free(pages[i][j]);
             }
-            //最后一个page，找到小于end的pos，删除0-pos的所有值
+            //最后一个page，找到小于end的j，删除[1, j)的所有值
             node = (bnode*)pages[i][pages[i].size() - 1];
             int j;
-            for(j = node->num() - 1; j >= 0; j ++){
+            for(j = node->num(); j >= 1; j--){
                 if(node->k(j) < end){
                     if(endIsDeleted){
                         j = j + 1;
