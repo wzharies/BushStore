@@ -13,46 +13,38 @@
 
 namespace leveldb {
 
-enum ExtentType {
+enum PageType {
   key_t,
   value_t
 };
 
+PageType getFixedSize(size_t page_size_){
+
+}
+
 class PMExtent {
-  PMExtent(uint64_t page_count, uint64_t page_size, uint64_t extent_id, const Options &options) {
-    std::string path =
-        options.pm_path + "extent" + std::to_string(extent_id) + ".edb";
-    /* create a pmem file and memory map it */
-    if ((pmem_addr_ =
-             pmem_map_file(path.c_str(), options.extent_size_, PMEM_FILE_CREATE, 0666,
-                           &mapped_len_, &is_pmem_)) == NULL) {
-      perror("pmem_map_file");
-      exit(1);
-    }
-    page_count_ = page_count;
-    page_size_ = page_size;
+public:
+  //新建一个Extent
+  PMExtent(uint64_t page_count, uint64_t page_size, char* pmem_addr) :
+    pmem_addr_(pmem_addr), page_count_(page_count), page_size_(page_size) {
     used_count_ = 0;
     page_start_addr_ =
         pmem_addr_ +
         (page_count % 8 == 0 ? page_count / 8 : (page_count + 8) / 8);
-    bitmap_ = new Bitmap(page_count, pmem_addr_);
-  }
-  void Sync() {
-    if (is_pmem_)
-      pmem_persist(pmem_addr_, mapped_len_);
-    else
-      pmem_msync(pmem_addr_, mapped_len_);
+    bitmap_ = (Bitmap*)pmem_addr;
+    bitmap_->nums_ = page_count_;
   }
   char* getNewPage() {
-    return page_start_addr_ + bitmap_->getEmpty() * page_size_;
+    bitmap_->getEmpty(last_empty_);
     used_count_++;
+    return page_start_addr_ + last_empty_ * page_size_;
   }
   void freePage(char* page_addr) {
     bitmap_->clr((page_addr - page_start_addr_) / page_size_);
     used_count_--;
   }
   bool isFull() { return used_count_ == page_count_; }
-  ~PMExtent();
+  ~PMExtent() {delete bitmap_;}
 
  private:
   uint64_t extent_id_;
@@ -60,34 +52,38 @@ class PMExtent {
   uint64_t page_size_;
   uint64_t used_count_;
   Bitmap* bitmap_;
-  size_t mapped_len_;
-  char* pmem_addr_;
-  char* page_start_addr_;
-  int is_pmem_;
+  size_t last_empty_;
+  char* pmem_addr_;// extent起始地址
+  char* page_start_addr_;// extent起始地址 + bitmap地址
 };
 
 class PMMemAllocator {
  public:
-  PMMemAllocator(Options &options) : options_(options){};
+  PMMemAllocator(Options& options_);
   ~PMMemAllocator();
   const void* PmAlloc(size_t pm_len);
-  char* GetNewPage(ExtentType type);
+  void* mallocPage(PageType type);
+  void freePage(void* addr, PageType type);
   uint64_t GetKpageSize() { return kPage_size_; }
   uint64_t GetVpageSize() { return vPage_size_; }
-
+  void Sync();
  private:
-  Options &options_;
-  PMExtent* NewExtent(ExtentType type);
+  PMExtent* NewExtent(PageType type);
   uint64_t SuitablePageSize(uint64_t page_size);
   uint64_t new_extent_id_;
   std::vector<PMExtent*> Kpage_;
   std::vector<PMExtent*> Vpage_;
+  PMExtent* pages[8];
   uint64_t kPage_slot_count_;
   uint64_t kPage_size_;
   uint64_t kPage_count_;
   uint64_t vPage_slot_count_;
   uint64_t vPage_size_;
   uint64_t vPage_count_;
+
+  size_t mapped_len_;
+  int is_pmem_;
+  Options& options_;
 };
 
 }  // namespace leveldb

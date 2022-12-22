@@ -60,7 +60,7 @@ private:
     void FindSmallest(){
         BP_Iterator* smallest = nullptr;
         for (int i = 0; i < its_.size(); i++) {
-            BP_Iterator* child = &its_[i];
+            BP_Iterator* child = its_[i];
             if (child->Valid()) {
                 if (smallest == nullptr) {
                     smallest = child;

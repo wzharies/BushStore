@@ -935,6 +935,7 @@ Status DBImpl::CompactionPM(int level){
     tree2->rangeReplace(pages2, pages3, tree2_start, tree2_end);
     
   }
+  return Status::OK();
 }
 
 void DBImpl::BackgroundCompaction() {

@@ -144,12 +144,21 @@ struct LEVELDB_EXPORT Options {
 
   int bucket_nums = 0x1000000;
 
-  std::string pm_path = "/tmp/pm_test/";
+  std::string pm_path_ = "/tmp/pm_test/";
   size_t key_size_ = 16;
   size_t value_size_ = 1024;
-  size_t extent_size_ = 1024 * 1024 * 1024;
+  uint64_t pm_size_ = 8 * 1024 * 1024 * 1024;
+  uint64_t extent_size_ = 1024 * 1024 * 1024;
   bool use_pm_ = true;
+  static uint64_t base_addr;
 };
+
+inline void* getRelativeAddr(void* addr){
+  return (void* )((uint64_t)addr - Options::base_addr);
+}
+inline void* getAbsoluteAddr(void* addr){
+  return (void* )((uint64_t)addr + Options::base_addr);
+}
 
 // Options that control read operations
 struct LEVELDB_EXPORT ReadOptions {

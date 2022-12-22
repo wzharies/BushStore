@@ -5,17 +5,10 @@
 namespace leveldb{
 class Bitmap{
 public:
-    Bitmap(int nums, char* addr){
-        int bitSize = (nums >> 3) + 1;
-        bitmaps_ = addr;
-        //bitmaps_ = (char *)calloc(bitSize, sizeof(char));
-        cur_empty_ = 0;
-    };
+    uint64_t nums_;
+    char bitmaps_[];
 
-    ~Bitmap(){
-        free(bitmaps_);
-    };
-
+public:
     int set(size_t index){
         if(index > nums_) return 0;
         int charIndex = (index >> 3);
@@ -37,18 +30,11 @@ public:
         return (bitmaps_[charIndex] >> innerIndex) & 1;
     };
 
-    size_t getEmpty(){
-        while(!get(cur_empty_)){
-            cur_empty_ = (cur_empty_ + 1) % nums_;
+    void getEmpty(size_t &last_empty){
+        while(!get(last_empty)){
+            last_empty = (last_empty + 1) % nums_;
         }
-        return cur_empty_;
     }
-
-
-private:
-    size_t nums_;
-    char * bitmaps_;
-    size_t cur_empty_;
 };
 }
 

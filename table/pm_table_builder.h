@@ -46,6 +46,7 @@ private:
     std::vector<bnode*> leftPages;
     kPage* key_buf_; //dram
     vPage* value_buf_; //dram
+    vPage* value_page_; //pm
     int max_level_ = 0;
     
     // std::vector<uint16_t> fingers_;

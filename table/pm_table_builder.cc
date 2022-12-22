@@ -4,6 +4,7 @@
 
 #include "leveldb/table_builder.h"
 #include "util/coding.h"
+#include "leveldb/options.h"
 #include <cassert>
 
 #include "pm_table_builder.h"
@@ -46,7 +47,8 @@ PMTableBuilder::~PMTableBuilder(){
 }
 
 void PMTableBuilder::flush_kpage(){
-    kPage* page = pm_alloc_->palloc(key_offset_);
+    // kPage* page = pm_alloc_->palloc(key_offset_);
+    kPage page = pm_alloc_->mallocPage(key_t);
     pages[0].push_back(page);
     pmem_memcpy_persist(page, key_buf_, key_offset_);
     memset(key_buf_, 0, key_offset_);
@@ -78,11 +80,12 @@ void PMTableBuilder::flush_kpage(){
 }
 
 void PMTableBuilder::flush_vpage(){
-    vPage* page = pm_alloc_->palloc(value_offset_);
-    pmem_memcpy_persist(page, value_buf_, value_offset_);
+    pmem_memcpy_persist(value_page_, value_buf_, value_offset_);
     memset(value_buf_, 0, value_offset_);
     value_offset_ = 256;
 }
+
+//这种为重写的情况，传入的时候保证pointer为相对地址
 void PMTableBuilder::add(const Slice& key, unsigned char finger, uint32_t pointer, unsigned char index){
     key_buf_->finger[key_buf_->nums] = finger;
     key_buf_->pointer[key_buf_->nums] = pointer;
@@ -97,6 +100,7 @@ void PMTableBuilder::add(const Slice& key, unsigned char finger, uint32_t pointe
     }
 }
 
+//这种为新写入的情况，需要保证传入的pointer为相对地址
 void PMTableBuilder::add(const Slice& key, const Slice& value, unsigned char finger){
     key_buf_->finger[key_buf_->nums] = finger;
     key_buf_->pointer[key_buf_->nums] = (value_buf_ >> 12);
@@ -116,13 +120,15 @@ void PMTableBuilder::add(const Slice& key, const Slice& value, unsigned char fin
         value_buf_->total_num = value_buf_->alloc_num;
         value_buf_->bitmap = (1 << value_buf_->alloc_num) - 1;
         flush_vpage();
+        value_page_ = pm_alloc_->mallocPage(value_t);
     }
 }
 
 void PMTableBuilder::add(const Slice& key, const Slice& value){
     key_type key64 = DecodeFixed64(key.data());
     key_buf_->finger[key_buf_->nums] = hashcode1B(key64);
-    key_buf_->pointer[key_buf_->nums] = (value_buf_ >> 12);
+    // key_buf_->pointer[key_buf_->nums] = (value_buf_ >> 12);
+    key_buf_->pointer[key_buf_->nums] = (getRelativeAddr(value_page_) >> 12);
     key_buf_->setk(key_buf_->nums, key);
     key_buf_->index[key_buf_->nums++] = value_buf_->alloc_num;
     key_buf_->max_key = key;
@@ -139,6 +145,7 @@ void PMTableBuilder::add(const Slice& key, const Slice& value){
         value_buf_->total_num = value_buf_->alloc_num;
         value_buf_->bitmap = (1 << value_buf_->alloc_num) - 1;
         flush_vpage();
+        value_page_ = pm_alloc_->mallocPage(value_t);
     }
 }
 

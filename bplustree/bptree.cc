@@ -17,6 +17,7 @@
  */
 
 #include "bptree.h"
+#include "leveldb/options.h"
 namespace leveldb {
 
 void lbtree::buildTree(Iterator* iter){
@@ -316,6 +317,7 @@ void lbtree::rangeDelete(std::vector<std::vector<void*>> pages, key_type start, 
         bnode *node = (bnode*)pages[i][0];
         //start和end在一个page的需要特殊判断。
         if(pages[i].size() == 1){
+            //包括first也需要删除掉，需要删除[firrst ,j)中的所有
             int first = node->search(start);
             for(int j = node->num(); j >= first; j--){
                 if(node->k(j) < end){
@@ -324,37 +326,41 @@ void lbtree::rangeDelete(std::vector<std::vector<void*>> pages, key_type start, 
                     }else{
                         node->k(j) = new_start;
                     }
-                    for(int k = j; k <= node->num(); k++){
-                        node->k(k - j + first) = node->k(k);
-                        node->ch(k - j + first) = node->ch(k);
+                    if(j <= node->num()){
+                        for(int k = j; k <= node->num(); k++){
+                            node->k(k - j + first) = node->k(k);
+                            node->ch(k - j + first) = node->ch(k);
+                        }
                     }
-                    //删掉了j+1个
-                    node->num() = node->num() - j + first;
+                    //删掉了j - first个
+                    node->num() = node->num() - (j - first);
                     break;
                 }
             }
         }else{
             //第一个page
             //删除大于等于start后面的值
-            node->num() = node->search(start);
+            node->num() = node->search(start) - 1;
             for(int j = 1; j < pages[i].size() - 1; j++){
                 free(pages[i][j]);
             }
-            //最后一个page，找到小于end的pos，删除0-pos的所有值
+            //最后一个page，找到小于end的j，删除[1, j)的所有值
             node = (bnode*)pages[i][pages[i].size() - 1];
-            for(int j = node->num() - 1; j >= 0; j ++){
+            for(int j = node->num(); j >= 1; j--){
                 if(node->k(j) < end){
                     if(endIsDeleted){
                         j = j + 1;
                     }else{
                         node->k(j) = new_start;
                     }
-                    for(int k = j; k < node->num(); k++){
-                        node->k(k - j) = node->k(k);
-                        node->ch(k - j) = node->ch(k);
+                    if(j <= node->num()){
+                        for(int k = j; k <= node->num(); k++){
+                            node->k(k - j + 1) = node->k(k);
+                            node->ch(k - j + 1) = node->ch(k);
+                        }
                     }
-                    //删掉了j+1个
-                    node->num() = node->num() - j;
+                    //删掉了j-1个
+                    node->num() = node->num() - (j - 1);
                     break;
                 }
             }
@@ -363,7 +369,7 @@ void lbtree::rangeDelete(std::vector<std::vector<void*>> pages, key_type start, 
             free(node);
             endIsDeleted = true;
         }else{
-            new_start = node->k(0);
+            new_start = node->k(1);
         }
     }
 }
@@ -421,7 +427,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
             }
         }else{
             //删除大于等于start的值
-            int new_count = node->search(start);;
+            int new_count = node->search(start) - 1;
             //node->num() = new_count;
 
             for(int j = 1; j < pages[i].size() - 1; j++){
@@ -579,10 +585,11 @@ Again1:
         _xabort(2);
         goto Again1;
     }
-
+    uint64_t ret_addr;
     for(int i = 0; i < LEAF_KEY_NUM; i++){
         if(kp->finger[i] == key_hash){
-            vp = (vPage* )(kp->pointer[i] << 12);
+            vp = (vPage* )(getAbsoluteAddr((void*)(kp->pointer[i] << 12)));
+            ret_addr = (kp->pointer[i] << 12) + vp->offset[kIndex];
             kIndex = kp->index[i];
             *pos = i;
             break;
@@ -592,7 +599,7 @@ Again1:
     // 4. RTM commit
     _xend();
 
-    return (void *)(reinterpret_cast<uint32_t>(vp) + vp->offset[kIndex]);
+    return getAbsoluteAddr((void*)ret_addr);
 }
 
 // /* ------------------------------------- *
