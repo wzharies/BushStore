@@ -18,6 +18,7 @@
 
 #include "bptree.h"
 #include "leveldb/options.h"
+#include "table/pm_table_alloc.h"
 namespace leveldb {
 
 void lbtree::buildTree(Iterator* iter){
@@ -309,70 +310,126 @@ std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type
     return page_addr;
 }
 
+void moveNode(bnode *src, bnode* dst, int src_start){
+    for(int i = src_start, i <= src->num(); i++){
+        dst[i - src_start + 1].k = src[i].k;
+        dst[i - src_start + 1].ch = src[i].ch;
+    }
+    dst->num() = (src->num() - src_start + 1);
+    src->num() -= dst->num();
+}
+
+void freeAfter(std::vector<std::vector<void*>> pages, int idx){
+    for(int j = idx; j < pages.size(); j++){
+        for(int k = 0; k < pages[j].size(); k++){
+            free((bnode*)pages[j][k]);
+        }
+    }
+}
+
+void findNode(std::vector<void*> pages, int& startNode, int&startIndex, int&endNode, int&endIndex, bool endIsDeleted, key_type& new_start, key_type start, key_type end){
+    bool findStart = true;
+    bnode *node = nullptr;
+    bnode *lastNode = nullptr;
+    for(int index = 0; index < pages.size(); index++){
+        lastNode = node;
+        node = (bnode*)pages[index];
+        if(findStart){
+            //开头也全删除
+            if(start <= node->kBegin && startNode == -1){
+                startNode = index;
+                startIndex = 1;
+                findStart = false;
+            }else if(node->kBegin < start && start <= node->kEnd){
+                startNode = index;
+                startIndex = node->search(start);
+                findStart = false;
+            }
+        }
+        if(!findStart){
+            //初始化为最后一个node的末尾，如果发现遍历过程中超过了end，但是endNode没有更新就更新，理论上只会触发一次
+            if(end < node->kBegin && index < endNode + 1){
+                endNode = index - 1;
+                if(lastNode != nullptr){
+                    endIndex = lastNode->num() + 1;
+                }
+            }else if(node->kBegin <= end && end <= node->kEnd){
+                endNode = index;
+                for(int j = node->num(); j >= 1; j--){
+                    if(node->k(j) < end){
+                        if(endIsDeleted){
+                            j = j + 1;
+                        }else{
+                            node->k(j) = new_start;
+                        }
+                        endIndex = j;
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 void lbtree::rangeDelete(std::vector<std::vector<void*>> pages, key_type start, key_type end){
     bool endIsDeleted = true;
     key_type new_start;
+    bnode *node = nullptr;
+    ASSERT(start < end);
     for(int i = 1; i < pages.size(); i++){
-        bnode *node = (bnode*)pages[i][0];
+        int startNode = -1; //start > kEnd 会是-1
+        int startIndex = -1;
+        int endNode = pages[i].size() - 1;  //end <kBegin会是-1
+        int endIndex = -1;
+        findNode(pages[i], startNode, startIndex, endNode, endIndex, endIsDeleted, new_start, start, end);
         //start和end在一个page的需要特殊判断。
-        if(pages[i].size() == 1){
-            //包括first也需要删除掉，需要删除[firrst ,j)中的所有
-            int first = node->search(start);
-            for(int j = node->num(); j >= first; j--){
-                if(node->k(j) < end){
-                    if(endIsDeleted){
-                        j = j + 1;
-                    }else{
-                        node->k(j) = new_start;
-                    }
-                    if(j <= node->num()){
-                        for(int k = j; k <= node->num(); k++){
-                            node->k(k - j + first) = node->k(k);
-                            node->ch(k - j + first) = node->ch(k);
-                        }
-                    }
-                    //删掉了j - first个
-                    node->num() = node->num() - (j - first);
-                    break;
-                }
+        if(startNode == endNode){
+            if(startNode == -1 || endNode == -1 || startIndex >= endIndex){
+                break;
+            }
+            node = (bnode*)pages[i][startNode];
+            //包括startIndex也需要删除掉，需要删除[startIndex ,endIndex)中的所有
+            if(startIndex == 1 && endIndex == node->num() + 1){
+                //TODO，应该不会存在，需要ASSERT
+                ASSERT(false);
+                node->num() = 0;
+            }else if(endIndex == node->num() + 1 || endIndex = -1){
+                node->num() = startIndex - 1;
+            }else{
+                node->remove(startIndex, endIndex);
             }
         }else{
-            //第一个page
-            //删除大于等于start后面的值
-            node->num() = node->search(start) - 1;
-            for(int j = 1; j < pages[i].size() - 1; j++){
-                free(pages[i][j]);
+            node = (bnode*)pages[i][startNode];
+            node->num() = startIndex - 1;
+            if(node->num == 0){
+                free(node);
             }
-            //最后一个page，找到小于end的j，删除[1, j)的所有值
-            node = (bnode*)pages[i][pages[i].size() - 1];
-            for(int j = node->num(); j >= 1; j--){
-                if(node->k(j) < end){
-                    if(endIsDeleted){
-                        j = j + 1;
-                    }else{
-                        node->k(j) = new_start;
-                    }
-                    if(j <= node->num()){
-                        for(int k = j; k <= node->num(); k++){
-                            node->k(k - j + 1) = node->k(k);
-                            node->ch(k - j + 1) = node->ch(k);
-                        }
-                    }
-                    //删掉了j-1个
-                    node->num() = node->num() - (j - 1);
-                    break;
-                }
+            for(int j = startNode + 1; j < endNode; j++){
+                free((bnode*)pages[i][startNode]);
             }
-        }
-        if(node->num() == 0){
-            free(node);
-            endIsDeleted = true;
-        }else{
-            new_start = node->k(1);
+            node = (bnode*)pages[i][endNode];
+            if(endIndex == node->num() + 1 || endIndex == -1){
+                free(node);
+                endIsDeleted = true;
+            }else{
+                node->remove(startIndex, endIndex);
+                endIsDeleted = false;
+                new_start = node->k(1);
+            }
+
+            if(endNode == pages[i].size() - 1 && ((startNode == 1 && startIndex == 1) || (startNode == 0 && startIndex > 1))){
+                tree_meta->tree_root = pages[i][0];
+                freeAfter(pages, i + 1);
+                break;
+            }else if(startNode == 0 && ((endNode == pages[i].size() - 2 && endIsDeleted) || (endNode == pages[i].size() - 1 && !endIsDeleted))){
+                tree_meta->tree_root = pages[i].back();
+                freeAfter(pages, i + 1);
+                break;
+            }
         }
     }
 }
+
 /*
 自顶向上合并
 每一层首先是正常的删除流程，如果start和end不在同一个page，insert就不需要进行
@@ -382,114 +439,198 @@ void lbtree::rangeDelete(std::vector<std::vector<void*>> pages, key_type start, 
 void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std::vector<void*>> new_pages, key_type start, key_type end){
     bool endIsDeleted = true;
     key_type new_start;
+    bnode *node = nullptr;
     bool rootInserted = false;
     IdxEntry newSplit = {0};
-    IdxEntry newRoot = {0};
+    // IdxEntry newRoot = {0};
+    ASSERT(start < end);
+    //TODO 可以提前break的情况
+    //TODO end < kBegin or start > kEnd
+    //TODO startNode开闭需要再考虑考虑
     for(int i = 1; i < pages.size(); i++){
-        bnode *node = (bnode*)pages[i][0];
+        int startNode = -1;
+        int startIndex = -1;
+        int endNode = pages[i].size() - 1;
+        int endIndex = -1;
+        findNode(pages[i], startNode, startIndex, endNode, endIndex, endIsDeleted, new_start, start, end);
         //start和end在一个page的需要特殊判断。
-        if(pages[i].size() == 1){
-            //包括first也需要删除掉，需要删除[firrst ,j)中的所有，找到大于等于first的值
-            int first = node->search(start);
-            int j;
-            for(j = node->num(); j >= first; j--){
-                if(node->k(j) < end){
-                    if(endIsDeleted){
-                        j = j + 1;
-                    }else{
-                        node->k(j) = new_start;
-                    }
-                    if(j <= node->num()){
-                        for(int k = j; k <= node->num(); k++){
-                            node->k(k - j + first) = node->k(k);
-                            node->ch(k - j + first) = node->ch(k);
-                        }
-                    }
-                    //删掉了j - first个
-                    node->num() = node->num() - (j - first);
-                    break;
-                }
+        if(startNode == endNode){
+            /*
+            1.如果是开头或者末尾被删除
+             .1 如果有newSplit，则直接插入(如果没有空间则分裂出一个newSplit)
+             .2 如果是多个page 
+             . .1 如果已经到root，则合并出一个新root来
+             . .2 如果没有到root，不用处理
+             .3 如果是root节点
+             . .1如果已经到root，则合并一个新root出来
+             . .2如果没有到root，则生成newSplit
+
+            2.如果是中间被删除，需要分裂
+             .1 如果有newSplit，则直接插入(如果没有空间则分裂出一个newSplit)
+             .2 如果有多个page
+             . .1如果已经到root，则分裂（如果有newInsert需要插入），同时在上一层的头尾插入新kv
+             . .2如果没有到root，则page需要分裂(如果有newInsert需要插入)，生成newInsert
+             .3 如果是root节点
+             . .1如果已经到root，则分裂（如果有newInsert需要插入），合并一个新root
+             . .2如果没有到root，则page需要分裂，将root插入前后节点（如果有newInsert需要插入），生成newInsert
+            */
+            node = (bnode*)pages[i][startNode];
+            //包括startIndex也需要删除掉，需要删除[startIndex ,endIndex)中的所有
+            if(startIndex == 1 && (endIndex == node->num() + 1 || endIndex == -1)){
+                //TODO，应该不会存在，需要ASSERT
+                ASSERT(false);
+                node->num() = 0;
             }
-            if(i < new_pages.size() - 1){
-                //page需要分裂，并且增加一个newSplit, 如果有上一层的newSplit，也需要插入
+            //如果只有末尾需要删除
+            if(endIndex == node->num() + 1 || endIndex = -1){
                 if(newSplit.k != 0){
-                    
-                }
-            }else if(i == new_pages.size() - 1){
-                assert(new_pages[new_pages.size() - 1].size() == 1);
-                bnode * new_node = (bnode *)new_pages[new_pages.size() - 1][0];
-                //有空闲的空间，直接插入
-                if(j - first >= new_node->num() + newSplit.k == 0 ? 1 : 0){
+                    node->num() = startIndex;
+                    node->k[startIndex] = newSplit.k;
+                    node->ch[startIndex] = newSplit.ch;
+                }else if(i < new_pages.size() - 1){
+                    //找到上一层的第一个
+                    bnode* new_node = new_pages[i + 1][0];
+                    //插入到最开始的位置
+                }else if(i == new_pages.size() - 1){
+                    //两者合并成root或者生成一个新root
 
                 }else{
-                    //需要分裂后再插入（不可能无法插入），增加newSplit和newRoot
+                    node->num() = startIndex - 1;
                 }
-            }else if(newRoot.k != 0){
-                //如果没有要删除的，则会分裂成两个节点，维护newSplit;
-            }
-        }else{
-            //删除大于等于start的值, 删除[first, )的值
-            int new_count = node->search(start) - 1;
-            //node->num() = new_count;
-
-            for(int j = 1; j < pages[i].size() - 1; j++){
-                free(pages[i][j]);
-            }
-            //最后一个page，找到小于end的j，删除[1, j)的所有值
-            node = (bnode*)pages[i][pages[i].size() - 1];
-            int j;
-            for(j = node->num(); j >= 1; j--){
-                if(node->k(j) < end){
-                    if(endIsDeleted){
-                        j = j + 1;
+            //如果是开头或者中间需要删除
+            }else{
+                if(i < new_pages.size() - 1){
+                    //分裂新建一个root
+                    if(startIndex == 1){
+                        node->remove(startIndex, endIndex);
+                        bnode* new_root = (bnode*)realloc(256);
+                        new_root->num() = 2;
+                        new_root->setKandCh(1, ((bnode*)new_pages[i][0])->k, (bnode*)new_pages[i][0]);
+                        new_root->setKandCh(2, node[1]->k, (void*)node);
                     }else{
-                        node->k(j) = new_start;
+                        bnode* new_node = (bnode*)realloc(256);
+                        bnode* new_root = (bnode*)realloc(256);
+                        moveNode(node, new_node, endIndex);
+                        new_root->num() = 3;
+                        new_root->setKandCh(1, node[1]->k, (void*)node);
+                        new_root->setKandCh(2, ((bnode*)new_pages[i][0])->k, (bnode*)new_pages[i][0]);
+                        new_root->setKandCh(3, new_node[1].k, new_node);
                     }
-                    // for(int k = j; k < node->num(); k++){
-                    //     node->k(k - j) = node->k(k);
-                    //     node->ch(k - j) = node->ch(k);
-                    // }
-                    // //删掉了j+1个
-                    // node->num() = node->num() - j;
-                    // break;
-                }
-            }
-            //如果newPage是root节点
-            if(i == new_pages.size() - 1){
-                assert(new_pages[new_pages.size() - 1].size() == 1);
-                bnode * new_node = (bnode *)new_pages[new_pages.size() - 1][0];
-                //如果两个节点删除后多余的空间能够放下
-                if(NON_LEAF_KEY_NUM - new_count >= new_node->num()){
-
-                }else if(j >= new_node->num()){
-
-                }else if(NON_LEAF_KEY_NUM * 2 - new_count -j >= new_node->num()){
+                }else if(i == new_pages.size() - 1){
+                    
+                }else if(startIndex < endIndex){
+                    if(newSplit.k != 0){
+                        node->setKandCh(startIndex, newSplit.k, newSplit.ch);
+                        startIndex++;
+                    }
+                    node->remove(startIndex, endIndex);
+                }else if(startIndex == endIndex){
 
                 }else{
-                    //如果放不下需要newRoot
-                    newRoot.k = new_node->k(1);
-                    newRoot.ch = Pointer8B(new_node);
+                    ASSERT(false);
                 }
-            //如果只有单独的newPage需要插入
-            }else if(newRoot.k != 0){
+            }
 
+
+        }else{
+            /*
+            执行删除的过程中
+            1. 如果是split,则在头或者尾找地方插入，放不下去则需要split，并且生成newSplit
+
+            2. 如果删除的只剩一个节点了
+            2.1 如果root，则直接合并成新root，并删除掉上面的所有节点
+            2.2 如果多个节点，则需要在newPages的下一层的开头或者结尾插入新节点
+
+            为下层做准备
+            3. 如果root节点，则直接生成split。
+            4. 如果是多个节点，不需要考虑。
+            */
+            //如果newPage是root节点
+            node = (bnode*)pages[i][startNode];
+            //删除startNode中的部分, 寻找newSplit的位置
+            node->num() = startIndex - 1;
+            if(node->num == 0){
+                free(node);
+            }else if(newSplit.k != 0 && !node->full()){
+                node->k(node->num() + 1) = newSplit.k;
+                node->ch(node->num() + 1) = newSplit.chs 
+                node->num()++;
+                newSplit.k = 0;
+            }
+            //删除中间部分
+            for(int j = startNode + 1; j < endNode; j++){
+                free((bnode*)pages[i][startNode]);
+            }
+            //删除末尾的部分，寻找newSplit的部分
+            node = (bnode*)pages[i][endNode];
+            if(endIndex == node->num() + 1 || endIndex = -1){
+                free(node);
+                endIsDeleted = true;
+            }else{
+                int beginIndex = 1;
+                if(newSplit.k != 0){
+                    ASSERT(endIndex > 1)
+                    node->setKandCh(1, newSplit.k, newSplit.ch);
+                    beginIndex++;
+                    newSplit.k = 0;
+                }
+                node->remove(startIndex, endIndex);
+                endIsDeleted = false;
+                new_start = node->k(1);
+            }
+
+            //只剩最开始的node了
+            if(endNode == pages[i].size() - 1 && ((startNode == 1 && startIndex == 1) || (startNode == 0 && startIndex > 1))){
+                if(i == new_pages.size() - 1){
+                    bnode* new_root = (bnode*)realloc(256);
+                    new_root->num() = 2;
+                    new_root->setKandCh(1, ((bnode*)pages[i][0])->k(1), pages[i][0]);
+                    new_root->setKandCh(2, ((bnode*)new_pages.back()[0])->k(1), new_pages.back()[0]);
+                    tree_meta->tree_root = new_root;
+                }else if(i < new_pages.size() - 1){
+                    bnode* next_node = (bnode*)new_pages[i + 1].front();
+                    next_node->insert(1, ((bnode*)pages[i][0])->k(1), pages[i][0]); 
+                }else{
+                    tree_meta->tree_root = pages[i][0];
+                }
+                freeAfter(pages, i + 1);
+                break;
+            //只剩最后的node
+            }else if(startNode == 0 && ((endNode == pages[i].size() - 2 && endIsDeleted) || (endNode == pages[i].size() - 1 && !endIsDeleted))){
+                if(i == new_pages.size() - 1){
+                    bnode* new_root = (bnode*)realloc(256);
+                    new_root->num() = 2;
+                    new_root->setKandCh(1, ((bnode*)new_pages.back()[0])->k(1), new_pages.back()[0]);
+                    new_root->setKandCh(2, ((bnode*)pages[i].back())->k(1), pages[i].back());
+                    tree_meta->tree_root = new_root;
+                }else if(i < new_pages.size() - 1){
+                    bnode* next_node = (bnode*)new_pages[i + 1].back();
+                    next_node->insert(next_node->num() + 1, ((bnode*)pages[i].back())->k(1), pages[i].back()); 
+                }else{
+                    tree_meta->tree_root = pages[i].back();
+                }
+                freeAfter(pages, i + 1);
+                break;
+            }
+
+            if(i == new_pages.size() - 1){
+                ASSERT(newSplit.k == 0);
+                bnode *new_node = new_pages.back()[0];
+                newSplit.k = new_node->k(1);
+                newSplit.ch = (void *)new_node;
             }
         }
-        if(node->num() == 0){
-            free(node);
-            endIsDeleted = true;
-        }else{
-            new_start = node->k(0);
-        }
     }
-    //全部遍历完了，只是root分裂了有newRoot和newSplit（最多2个kv）
-    if(new_pages.size() <= pages.size() && newRoot.k != 0){
+
+    //     //全部遍历完了，只是root分裂了有newRoot和newSplit（最多2个kv）
+    // if(new_pages.size() <= pages.size() && newRoot.k != 0){
 
 
-    //new_pages更多，所以没有遍历完
-    }else if(new_pages.size() > pages.size()){
-        //需要将上一层root分裂后的left和right插入到这一层的前和后之中。
-    }
+    // //new_pages更多，所以没有遍历完
+    // }else if(new_pages.size() > pages.size()){
+    //     //需要将上一层root分裂后的left和right插入到这一层的前和后之中。
+    // }
+
 }
 
 

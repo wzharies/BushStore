@@ -148,6 +148,30 @@ public:
 
     int &num(void) { return ((bnodeMeta *)&(ent[0].k))->num; }
     int &lock(void) { return ((bnodeMeta *)&(ent[0].k))->lock; }
+    void setKandCh(int idx, ket_type& k, Pointer8B& ch){
+        ent[idx].k = k;
+        ent[idx].ch = ch;
+    }
+    void remove(int start, int end){
+        for(int k = end; k <= num(); k++){
+            k(k - end + start) = k(k);
+            ch(k - end + start) = ch(k);
+        }
+        //删除end - start个
+        num() = num() - (end - start);
+    }
+    bool full(){
+        return num() == NON_LEAF_KEY_NUM;
+    }
+    bool insert(int index, key_type& k, Pointer8B& ch){
+        for(int i = num(); i >= index; i--){
+            k(i + 1) = k(i);
+            ch(i + 1) = ch(i); 
+        }
+        k(index) = k;
+        ch(index) = ch;
+        num()++;
+    }
 
     key_type &kBegin() { return ent[1].k; }
     key_type &kEnd() { return ent[num() - 1].k; }
