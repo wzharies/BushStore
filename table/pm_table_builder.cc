@@ -4,11 +4,13 @@
 
 #include "leveldb/table_builder.h"
 #include "util/coding.h"
-#include "leveldb/options.h"
+#include "include/leveldb/options.h"
+#include <algorithm>
 #include <cassert>
+#include <cstdlib>
 
 #include "pm_table_builder.h"
-#include "pm_table_alloc.h"
+#include "pm_mem_alloc.h"
 #include "libpmem.h"
 
 namespace leveldb {
@@ -30,35 +32,41 @@ namespace leveldb {
 //     }
 //     return hash;
 // }
-#define max_size 256 * 40
+#define max_size 64 * 1024
 
-PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc, char* node_mem = nullptr) : pm_alloc_(pm_alloc), node_mem_(node_mem){
-    key_buf_ = (kPage*)new char[max_size];
-    value_buf_ = (vPage*)new char[max_size];
+PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc, char* node_mem) : pm_alloc_(pm_alloc), node_mem_(node_mem){
+    key_buf_ = (kPage*)calloc(1, max_size);
+    value_buf_ = (vPage*)calloc(1, max_size);
     key_offset_ = 256;
     value_offset_ = 256;
     pages.resize(32);
     leftPages.resize(32);
+    value_page_ = (vPage*)pm_alloc_->mallocPage(value_t);
 }
 
 PMTableBuilder::~PMTableBuilder(){
-    delete[] key_buf_;
-    delete[] value_buf_
+    free(key_buf_);
+    free(value_buf_);
+    //TODO value_page_如果为空是否需要delete
 }
 
 void PMTableBuilder::flush_kpage(){
     // kPage* page = pm_alloc_->palloc(key_offset_);
-    kPage page = pm_alloc_->mallocPage(key_t);
+    kPage* page = (kPage*)pm_alloc_->mallocPage(key_t);
     pages[0].push_back(page);
-    pmem_memcpy_persist(page, key_buf_, key_offset_);
+    if(pm_alloc_->options_.use_pm_){
+        pmem_memcpy_persist(page, key_buf_, key_offset_);
+    }else {
+        memcpy(page, key_buf_, key_offset_);
+    }
     memset(key_buf_, 0, key_offset_);
     key_offset_ = 256;
-    key_type lastKey = page->k(0);
-    Pointer8B lastAddr = Pointer8B(page);
+    key_type lastKey = page->rawK(0);
+    Pointer8B lastAddr = (void*)page;
     for(int i = 1; i < 32;i++){
-        max_level = std::max(max_level, i);
+        max_level_ = std::max(max_level_, i);
         if(leftPages[i] == nullptr){
-            leftPages[i] = (bnode*)calloc(256, 1);
+            leftPages[i] = (bnode*)calloc(1, 256);
         }
         //key是下一层page的第一个key
         leftPages[i]->k(leftPages[i]->num() + 1) = lastKey;
@@ -80,7 +88,11 @@ void PMTableBuilder::flush_kpage(){
 }
 
 void PMTableBuilder::flush_vpage(){
-    pmem_memcpy_persist(value_page_, value_buf_, value_offset_);
+    if(pm_alloc_->options_.use_pm_){
+        pmem_memcpy_persist(value_page_, value_buf_, value_offset_);
+    }else{
+        memcpy(value_page_, value_buf_, value_offset_);
+    }
     memset(value_buf_, 0, value_offset_);
     value_offset_ = 256;
 }
@@ -91,11 +103,11 @@ void PMTableBuilder::add(const Slice& key, unsigned char finger, uint32_t pointe
     key_buf_->pointer[key_buf_->nums] = pointer;
     key_buf_->setk(key_buf_->nums, key);
     key_buf_->index[key_buf_->nums++] = index;
-    key_buf_->max_key = key;
+    key_buf_->max_key = DecodeDBBenchFixed64(key.data());
     key_offset_ += (1 + key.size());
 
     if(key_buf_->nums == LEAF_KEY_NUM){
-        key_buf_->bitmap = (1 << key_buf_->nums) - 1;
+        key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         flush_kpage();
     }
 }
@@ -103,49 +115,48 @@ void PMTableBuilder::add(const Slice& key, unsigned char finger, uint32_t pointe
 //这种为新写入的情况，需要保证传入的pointer为相对地址
 void PMTableBuilder::add(const Slice& key, const Slice& value, unsigned char finger){
     key_buf_->finger[key_buf_->nums] = finger;
-    key_buf_->pointer[key_buf_->nums] = (value_buf_ >> 12);
+    key_buf_->pointer[key_buf_->nums] = (reinterpret_cast<uint64_t>(getRelativeAddr(value_page_)) >> 12);
     key_buf_->setk(key_buf_->nums, key);
     key_buf_->index[key_buf_->nums++] = value_buf_->alloc_num;
-    key_buf_->max_key = key;
+    key_buf_->max_key = DecodeDBBenchFixed64(key.data());
     key_offset_ += (1 + key.size());
 
-    value_buf_->setv(value_buf_->alloc_num++, value_offset_, value);
-    value_offset_ += value.size;
+    value_offset_ = value_buf_->setv(value_buf_->alloc_num++, value_offset_, value);
 
     if(key_buf_->nums == LEAF_KEY_NUM){
-        key_buf_->bitmap = (1 << key_buf_->nums) - 1;
+        key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         flush_kpage();
     }
     if(value_buf_->alloc_num == LEAF_VALUE_NUM){
         value_buf_->total_num = value_buf_->alloc_num;
-        value_buf_->bitmap = (1 << value_buf_->alloc_num) - 1;
+        value_buf_->bitmap = (1ULL << value_buf_->alloc_num) - 1;
         flush_vpage();
-        value_page_ = pm_alloc_->mallocPage(value_t);
+        value_page_ = (vPage*)pm_alloc_->mallocPage(value_t);
     }
 }
 
 void PMTableBuilder::add(const Slice& key, const Slice& value){
-    key_type key64 = DecodeFixed64(key.data());
+    key_type key64 = DecodeDBBenchFixed64(key.data());
     key_buf_->finger[key_buf_->nums] = hashcode1B(key64);
     // key_buf_->pointer[key_buf_->nums] = (value_buf_ >> 12);
-    key_buf_->pointer[key_buf_->nums] = (getRelativeAddr(value_page_) >> 12);
+    // uint32_t temp = getRelativeAddr(value_page_);
+    key_buf_->pointer[key_buf_->nums] = getRelativeAddr(value_page_) >> 12;
     key_buf_->setk(key_buf_->nums, key);
     key_buf_->index[key_buf_->nums++] = value_buf_->alloc_num;
-    key_buf_->max_key = key;
-    key_offset_ += (1 + key.size());
+    key_buf_->max_key = key64;
+    key_offset_ += key.size();
 
-    value_buf_->setv(value_buf_->alloc_num++, value_offset_, value);
-    value_offset_ += value.size;
+    value_offset_ = value_buf_->setv(value_buf_->alloc_num++, value_offset_, value);
 
     if(key_buf_->nums == LEAF_KEY_NUM){
-        key_buf_->bitmap = (1 << key_buf_->nums) - 1;
+        key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         flush_kpage();
     }
     if(value_buf_->alloc_num == LEAF_VALUE_NUM){
         value_buf_->total_num = value_buf_->alloc_num;
-        value_buf_->bitmap = (1 << value_buf_->alloc_num) - 1;
+        value_buf_->bitmap = (1ULL << value_buf_->alloc_num) - 1;
         flush_vpage();
-        value_page_ = pm_alloc_->mallocPage(value_t);
+        value_page_ = (vPage*)pm_alloc_->mallocPage(value_t);
     }
 }
 
@@ -154,22 +165,29 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(lbtree *&tree){
     key_type lastKey = 0;
     Pointer8B lastAddr = Pointer8B(0);
     if(key_buf_->nums != 0){
-        key_buf_->bitmap = (1 << key_buf_->nums) - 1;
-        kPage* page = pm_alloc_->palloc(key_offset_);
+        key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
+        kPage* page = (kPage*)pm_alloc_->mallocPage(key_t);
         pages[0].push_back(page);
-        pmem_memcpy_persist(page, key_buf_, key_offset_);
+        if(pm_alloc_->options_.use_pm_){
+            pmem_memcpy_persist(page, key_buf_, key_offset_);
+        }else {
+            memcpy(page, key_buf_, key_offset_);
+        }
         // memset(key_buf_, 0, key_offset_);
         // key_offset_ = 0;
-        lastKey = page->k(0);
+        lastKey = page->rawK(0);
         lastAddr = Pointer8B(page);
     }
 
-    for(int i = 1; i <= max_level;i++){
+    for(int i = 1; i <= max_level_;i++){
         max_level_ = std::max(max_level_, i);
-        if(leftPages[i] == nullptr && lastkey != 0){
-            leftPages[i] = (bnode*)realloc(256);
+        if(leftPages[i] == nullptr && lastKey != 0){
+            //下一层有数据需要索引，但是这一层已经空了
+            leftPages[i] = (bnode*)calloc(1, 256);
         }
-        if(lastkey != 0){
+        if(lastKey != 0){
+            //不可能是满的，之前满的话是会立刻刷入的
+            assert(!leftPages[i]->full());
             //key是下一层page的第一个key
             leftPages[i]->k(leftPages[i]->num() + 1) = lastKey;
             //value是下一层page的地址
@@ -177,19 +195,22 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(lbtree *&tree){
             leftPages[i]->num()++;
         }
 
-        if(leftPages[i] != nullptr && leftPages[i].num() != 0){
+        if(leftPages[i] != nullptr){
+            assert(leftPages[i]->num() != 0);
             //leftPages[i] = (bnode*)realloc(256);
             pages[i].push_back((void*)leftPages[i]);
             lastKey = leftPages[i]->k(leftPages[i]->num());
             lastAddr = Pointer8B(leftPages[i]);
-            leftPages[i] = nullptr;
+            //leftPages[i] = nullptr;
         }
     }
 
     if(value_buf_->alloc_num != 0){
         value_buf_->total_num = value_buf_->alloc_num;
-        value_buf_->bitmap = (1 << value_buf_->alloc_num) - 1;
+        value_buf_->bitmap = (1ULL << value_buf_->alloc_num) - 1;
         flush_vpage();
+    }else{
+        pm_alloc_->freePage((char*)value_page_, key_t);
     }
 
     treeMeta* tree_meta = new treeMeta(Pointer8B(leftPages[max_level_]), max_level_, min_key_, max_key_, pages[1], node_mem_);
@@ -197,10 +218,10 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(lbtree *&tree){
     return pages;
 }
 void PMTableBuilder::setMaxKey(const Slice& key){
-    max_key_ = DecodeFixed64(key.data());
+    max_key_ = DecodeDBBenchFixed64(key.data());
 }
-void PMTableBuilder::setMinKey(cosnt Slice& key){
-    min_key_ = DecodeFixed64(key.data());
+void PMTableBuilder::setMinKey(const Slice& key){
+    min_key_ = DecodeDBBenchFixed64(key.data());
 }
 // void PMTableBuilder::Add(const Slice& key, const Slice& value, unsigned char finger){
 //     uint64_t key_total_size = key.size_ + 8;

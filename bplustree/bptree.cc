@@ -16,9 +16,10 @@
  * size is limited to up to 128B.
  */
 
+#include <cstdlib>
 #include "bptree.h"
-#include "leveldb/options.h"
-#include "table/pm_table_alloc.h"
+#include "include/leveldb/options.h"
+#include "table/pm_mem_alloc.h"
 namespace leveldb {
 
 void lbtree::buildTree(Iterator* iter){
@@ -48,13 +49,13 @@ std::vector<std::vector<void *>> lbtree::pickInput(int page_count, int* index_st
 
     Again2:
         // 1. RTM begin
-        if (_xbegin() != _XBEGIN_STARTED)
-        {
-            // random backoff
-            sum= 0;
-            for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
-            goto Again2;
-        }
+        // if (_xbegin() != _XBEGIN_STARTED)
+        // {
+        //     // random backoff
+        //     sum= 0;
+        //     for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+        //     goto Again2;
+        // }
 
         // 2. search nonleaf nodes
         p = tree_meta->tree_root;
@@ -69,7 +70,7 @@ std::vector<std::vector<void *>> lbtree::pickInput(int page_count, int* index_st
             // if the lock bit is set, abort
             if (p->lock())
             {
-                _xabort(3);
+                // _xabort(3);
                 goto Again2;
             }
 
@@ -164,7 +165,7 @@ std::vector<std::vector<void *>> lbtree::pickInput(int page_count, int* index_st
     }
     
     // 4. RTM commit
-    _xend();
+    // _xend();
 
     return page_addr;
 }
@@ -191,13 +192,13 @@ std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type
 
     Again2:
         // 1. RTM begin
-        if (_xbegin() != _XBEGIN_STARTED)
-        {
-            // random backoff
-            sum= 0;
-            for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
-            goto Again2;
-        }
+        // if (_xbegin() != _XBEGIN_STARTED)
+        // {
+        //     // random backoff
+        //     sum= 0;
+        //     for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+        //     goto Again2;
+        // }
 
         // 2. search nonleaf nodes
         p = tree_meta->tree_root;
@@ -212,7 +213,7 @@ std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type
             // if the lock bit is set, abort
             if (p->lock())
             {
-                _xabort(3);
+                // _xabort(3);
                 goto Again2;
             }
 
@@ -305,15 +306,15 @@ std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type
     }
     
     // 4. RTM commit
-    _xend();
+    // _xend();
 
     return page_addr;
 }
 
 void moveNode(bnode *src, bnode* dst, int src_start){
-    for(int i = src_start, i <= src->num(); i++){
-        dst[i - src_start + 1].k = src[i].k;
-        dst[i - src_start + 1].ch = src[i].ch;
+    for(int i = src_start; i <= src->num(); i++){
+        dst->k(i - src_start + 1) = src->k(i);
+        dst->ch(i - src_start + 1) = src->ch(i);
     }
     dst->num() = (src->num() - src_start + 1);
     src->num() -= dst->num();
@@ -327,17 +328,17 @@ void freeAfter(std::vector<std::vector<void*>> pages, int idx){
     }
 }
 bnode* splitNode(bnode* node, int idx){
-    bnode* newNode = (bnode*)realloc(256);
+    bnode* newNode = (bnode*)calloc(1, 256);
     moveNode(node, newNode, idx);
     return newNode;
 }
 bnode* splitNode(bnode* node, int start, int end, int skip){
-    bnode* newNode = (bnode*)realloc(256);
+    bnode* newNode = (bnode*)calloc(1, 256);
     int newCount = skip + node->num() - end + 1;
-    ASSERT(newCount > NON_LEAF_KEY_NUM);
+    assert(newCount > NON_LEAF_KEY_NUM);
     for(int i = end; i <= node->num(); i++){
-        newNode[i - end + skip].k = start[i].k;
-        newNode[i - end + skip].ch = start[i].ch;
+        newNode->k(i - end + skip) = node->k(i);
+        newNode->ch(i - end + skip) = node->ch(i);
     }
     node->num() = start - 1;
     newNode->num() = newCount;
@@ -450,7 +451,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             node->remove(2, last);
                             newSplit.k = 0;
                         }else{
-                            bnode *nextSplit = (bnode*)realloc(256);
+                            bnode *nextSplit = (bnode*)calloc(1, 256);
                             nextSplit->setKandCh(1, newSplit.k, newSplit.ch);
                             nextSplit->num() = 1;
                             newSplit.ch = (void*)nextSplit;
@@ -466,7 +467,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             newRoot.k = 0; newSplit.k = 0;
                             node->remove(3, last);
                         }else{
-                            bnode *nextSplit = (bnode*)realloc(256);
+                            bnode *nextSplit = (bnode*)calloc(1, 256);
                             nextSplit->setKandCh(1, newRoot.k, newRoot.ch);
                             nextSplit->setKandCh(2, newSplit.k, newSplit.ch);
                             nextSplit->num() = 2;
@@ -481,7 +482,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             node->remove(2, last);
                             newRoot.k = 0;
                         }else{
-                            bnode *nextRoot = (bnode*)realloc(256);
+                            bnode *nextRoot = (bnode*)calloc(1, 256);
                             nextRoot->setKandCh(1, newRoot.k, newRoot.ch);
                             nextRoot->num() = 1;
                             newRoot.ch = (void*)nextRoot;
@@ -493,7 +494,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                         node->remove(2, last);
                         newSplit.k = 0;
                     }else{
-                        bnode *nextSplit = (bnode*)realloc(256);
+                        bnode *nextSplit = (bnode*)calloc(1, 256);
                         nextSplit->setKandCh(1, newSplit.k, newSplit.ch);
                         nextSplit->num() = 1;
                         newSplit.ch = (void*)nextSplit;
@@ -504,7 +505,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                 if(i < new_pages.size() - 1){
                     //只需要生成newSplit
                     if(newSplit.k != 0){
-                        bnode *nextSplit = (bnode*)realloc(256);
+                        bnode *nextSplit = (bnode*)calloc(1, 256);
                         nextSplit->setKandCh(1, newSplit.k, newSplit.ch);
                         nextSplit->num() = 1;
                         newSplit.ch = (void*)nextSplit;
@@ -512,8 +513,8 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                     node->remove(first, last);
                 }else if(i == new_pages.size() - 1){
                     //可以吧newSplit合入root，并且生成newRoot
-                    bnode* rootNode = new_pages.back().front();
-                    if(newSplit.k != 0 && !rootNode.full()){
+                    bnode* rootNode = (bnode*)new_pages.back().front();
+                    if(newSplit.k != 0 && !rootNode->full()){
                         rootNode->insert(rootNode->num() + 1, newSplit.k, newSplit.ch);
                         newSplit.k = 0;
                     }
@@ -529,7 +530,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             node->remove(first + 2, last);
                             newRoot.k = 0; newSplit.k = 0;
                         }else{
-                            bnode *nextSplit = (bnode*)realloc(256);
+                            bnode *nextSplit = (bnode*)calloc(1, 256);
                             nextSplit->setKandCh(1, newRoot.k, newRoot.ch);
                             nextSplit->setKandCh(2, newSplit.k, newSplit.ch);
                             nextSplit->num() = 2;
@@ -544,7 +545,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             node->remove(first + 1, last);
                             newRoot.k = 0;
                         }else{
-                            bnode *nextSplit = (bnode*)realloc(256);
+                            bnode *nextSplit = (bnode*)calloc(1, 256);
                             nextSplit->setKandCh(1, newRoot.k, newRoot.ch);
                             nextSplit->num() = 1;
                             newRoot.ch = (void*)nextSplit;
@@ -557,7 +558,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                         node->remove(first + 1, last);
                         newSplit.k = 0;
                     }else{
-                        bnode *nextSplit = (bnode*)realloc(256);
+                        bnode *nextSplit = (bnode*)calloc(1, 256);
                         nextSplit->setKandCh(1, newSplit.k, newSplit.ch);
                         nextSplit->num() = 1;
                         newSplit.ch = (void*)nextSplit;
@@ -590,7 +591,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                         if(!node->full()){
                             node->insert(node->num()+1, new_node->k(j), new_node->ch(j));
                         }else{
-                            newNode->setKandCh(j - left, new_node->k(j), new_node->ch(j)):
+                            newNode->setKandCh(j - left, new_node->k(j), new_node->ch(j));
                         }
                     }
                     if(newSplit.k != 0){
@@ -686,11 +687,12 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
             }
             //如果newPage是root节点
             if(i == new_pages.size() - 1){
+                bnode* new_node = (bnode*)new_pages.back().front();
                 newRoot.k = new_node->k(1);
                 newRoot.ch = Pointer8B(new_node);
             //如果只有单独的newPage需要插入
             }else if(newRoot.k != 0){
-                bnode* newNode = (bnode*)realloc(256);
+                bnode* newNode = (bnode*)calloc(1, 256);
                 newNode->insert(1, newRoot.k, newRoot.ch);
                 newRoot.ch = (void*)newNode;
             }
@@ -704,10 +706,10 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
     }
     //全部遍历完了，只是root分裂了有newRoot和newSplit（最多2个kv）
     if(new_pages.size() <= pages.size() && (newRoot.k != 0 || newSplit.k != 0)){
-        bnode* new_root = (bnode*)realloc(256);
+        bnode* new_root = (bnode*)calloc(1, 256);
         int cur = 1;
         if(needOldRoot){
-            bnode* oldRoot = pages.back().front();
+            bnode* oldRoot = (bnode*)pages.back().front();
             new_root->insert(cur++, oldRoot->k(1), (void*)oldRoot);
         }
         if(newRoot.k != 0){
@@ -721,10 +723,10 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
     //new_pages更多，所以没有遍历完
     }else if(new_pages.size() > pages.size()){
         //需要将上一层root分裂后的left和right插入到这一层的前和后之中。主要是newSplit需要插入
-        bnode* firstNode = new_pages[pages.size()].front();
-        bnode* lastNode = new_pages[pages.size()].back();
+        bnode* firstNode = (bnode*)new_pages[pages.size()].front();
+        bnode* lastNode = (bnode*)new_pages[pages.size()].back();
         if(needOldRoot){
-            bnode* oldRoot = pages.back().front();
+            bnode* oldRoot = (bnode*)pages.back().front();
             firstNode->insert(1, oldRoot->k(1), (void*)oldRoot);
         }
         if(newSplit.k != 0){
@@ -759,8 +761,8 @@ void *lbtree::lookup(key_type key, int *pos)
 
 Again1:
     // 1. RTM begin
-    if (_xbegin() != _XBEGIN_STARTED)
-        goto Again1;
+    // if (_xbegin() != _XBEGIN_STARTED)
+    //     goto Again1;
 
     // 2. search nonleaf nodes
     p = tree_meta->tree_root;
@@ -774,7 +776,7 @@ Again1:
         // if the lock bit is set, abort
         if (p->lock())
         {
-            _xabort(1);
+            // _xabort(1);
             goto Again1;
         }
 
@@ -827,13 +829,13 @@ Again1:
     // if the lock bit is set, abort
     if (kp->lock)
     {
-        _xabort(2);
+        // _xabort(2);
         goto Again1;
     }
     uint64_t ret_addr;
     for(int i = 0; i < LEAF_KEY_NUM; i++){
         if(kp->finger[i] == key_hash){
-            vp = (vPage* )(getAbsoluteAddr((void*)(kp->pointer[i] << 12)));
+            vp = (vPage* )(getAbsoluteAddr(kp->pointer[i] << 12));
             ret_addr = (kp->pointer[i] << 12) + vp->offset[kIndex];
             kIndex = kp->index[i];
             *pos = i;
@@ -842,7 +844,7 @@ Again1:
     }
     
     // 4. RTM commit
-    _xend();
+    // _xend();
 
     return getAbsoluteAddr((void*)ret_addr);
 }

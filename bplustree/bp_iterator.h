@@ -69,20 +69,20 @@ public:
     }
 
     Slice value(){
-        vPage *addr = (vPage *)(pointer() << 12);
+        vPage *addr = reinterpret_cast<vPage *>(pointer() << 12);
         return addr->v(index());
     }
 
     void clrValue(){
-        vPage *addr = (vPage *)(pointer() << 12);
-        addr->bitmap = addr->bitmap & (~(1 << index()));
+        vPage *addr = reinterpret_cast<vPage *>(pointer() << 12);
+        addr->bitmap = addr->bitmap & (~(1ULL << index()));
         if(addr->bitmap == 0){
             //TODO释放页面
         }
     }
 
     Status status(){
-        
+        return Status::OK();
     }
 private:
     lbtree *tree1_;

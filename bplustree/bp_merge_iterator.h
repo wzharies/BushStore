@@ -54,7 +54,7 @@ public:
     }
 
     Status status(){
-
+        return Status::OK();
     }
 private:
     void FindSmallest(){

@@ -41,7 +41,7 @@ namespace leveldb {
 #endif
 
 #define LEAF_KEY_NUM (40)
-#define LEAF_VALUE_NUM (40)
+#define LEAF_VALUE_NUM (60)
 
 // at most 1 of the following 2 macros may be defined
 //#define NONTEMP
@@ -148,14 +148,14 @@ public:
 
     int &num(void) { return ((bnodeMeta *)&(ent[0].k))->num; }
     int &lock(void) { return ((bnodeMeta *)&(ent[0].k))->lock; }
-    void setKandCh(int idx, ket_type& k, Pointer8B& ch){
+    void setKandCh(int idx, key_type& k, Pointer8B& ch){
         ent[idx].k = k;
         ent[idx].ch = ch;
     }
     void remove(int start, int end){
-        for(int k = end; k <= num(); k++){
-            k(k - end + start) = k(k);
-            ch(k - end + start) = ch(k);
+        for(int i = end; i <= num(); i++){
+            k(i - end + start) = k(i);
+            ch(i - end + start) = ch(i);
         }
         //删除end - start个
         num() = num() - (end - start);
@@ -163,13 +163,13 @@ public:
     bool full(){
         return num() == NON_LEAF_KEY_NUM;
     }
-    bool insert(int index, key_type& k, Pointer8B& ch){
+    void insert(int index, const key_type& key, const Pointer8B& value){
         for(int i = num(); i >= index; i--){
             k(i + 1) = k(i);
             ch(i + 1) = ch(i); 
         }
-        k(index) = k;
-        ch(index) = ch;
+        k(index) = key;
+        ch(index) = value;
         num()++;
     }
 
@@ -194,13 +194,15 @@ public:
     uint32_t pointer[LEAF_KEY_NUM]; //vPage地址，4k对齐，后12位不存储
     unsigned char index[LEAF_KEY_NUM]; //在vpage的第几个
     char keys[];
+    key_type rawK(size_t index){
+        return DecodeDBBenchFixed64(keys + index * 16);
+    }
     leveldb::Slice k(size_t index){
-        return leveldb::Slice(keys + index * 4 + 1, 2);
+        return leveldb::Slice(keys + index * 16, 16);
     }
     void setk(size_t index, leveldb::Slice key){
-        keys[index * 3] = key.size();
-        keys[index * 3 + 1] = key[0];
-        keys[index * 3 + 2] = key[1];
+        // keys[index * 3] = key.size();
+        memcpy(keys + index * 16, key.data(), 16);
     }
 };
 
@@ -210,15 +212,17 @@ public:
     uint32_t alloc_num;
     uint64_t bitmap;
     uint32_t offset[LEAF_VALUE_NUM];
-    char kvs[];
+    char kvs[]; //4B size + value;
     leveldb::Slice v(size_t index){
-        char* start = (char *)(this + offset[index]);
+        char* start = (char *)((char*)this + offset[index]);
         uint32_t v_len = leveldb::DecodeFixed32(start);
         return leveldb::Slice(start + 4, v_len);
     }
-    void setv(size_t index, uint32_t off, leveldb::Slice value){
-        memcpy(this + off, value.data(), value.size());
+    uint32_t setv(size_t index, uint32_t off, leveldb::Slice value){
+        leveldb::EncodeFixed32((char*)this + off, value.size());
+        memcpy((char*)this + 4 + off, value.data(), value.size());
         offset[index] = off;
+        return off + 4 + value.size();
     }
 };
 
@@ -313,68 +317,68 @@ public:
 //     void qsortBleaf(bleaf *p, int start, int end, int pos[]);
 
 public:
-    int bulkload(int keynum, keyInput *input, float bfill);
+    // int bulkload(int keynum, keyInput *input, float bfill);
 
-    void randomize(Pointer8B pnode, int level);
-    void randomize()
-    {
-        srand48(12345678);
-        randomize(tree_meta->tree_root, tree_meta->root_level);
-    }
-
-    void *seek(key_type key, int *pos);
-
-    void *lookup(key_type key, int *pos);
-
-    // void *get_recptr(void *p, int pos)
+    // void randomize(Pointer8B pnode, int level);
+    // void randomize()
     // {
-    //     return ((bleaf *)p)->ch(pos);
+    //     srand48(12345678);
+    //     randomize(tree_meta->tree_root, tree_meta->root_level);
     // }
 
-    // insert (key, ptr)
-    void insert(key_type key, void *ptr);
+    // void *seek(key_type key, int *pos);
 
-    // delete key
-    void del(key_type key);
+    // void *lookup(key_type key, int *pos);
 
-    // // Range scan -- Author: Lu Baotong
-    // int range_scan_by_size(const key_type& key,  uint32_t to_scan, char* result);
-    // int range_scan_in_one_leaf(bleaf *lp, const key_type& key, uint32_t to_scan, std::pair<key_type, void*>* result);
-    // int add_to_sorted_result(std::pair<key_type, void*>* result, std::pair<key_type, void*>* new_record, int total_size, int cur_idx);
+    // // void *get_recptr(void *p, int pos)
+    // // {
+    // //     return ((bleaf *)p)->ch(pos);
+    // // }
 
-    // Range Scan -- Author: George He
-    int rangeScan(key_type key,  uint32_t scan_size, char* result);
-    bleaf* lockSibling(bleaf* lp);
+    // // insert (key, ptr)
+    // void insert(key_type key, void *ptr);
+
+    // // delete key
+    // void del(key_type key);
+
+    // // // Range scan -- Author: Lu Baotong
+    // // int range_scan_by_size(const key_type& key,  uint32_t to_scan, char* result);
+    // // int range_scan_in_one_leaf(bleaf *lp, const key_type& key, uint32_t to_scan, std::pair<key_type, void*>* result);
+    // // int add_to_sorted_result(std::pair<key_type, void*>* result, std::pair<key_type, void*>* new_record, int total_size, int cur_idx);
+
+    // // Range Scan -- Author: George He
+    // int rangeScan(key_type key,  uint32_t scan_size, char* result);
+    // bleaf* lockSibling(bleaf* lp);
 
     double load_factor(){
         return 1.0 * tree_meta->cur_size / tree_meta->max_size;
     }
-
+    void* lookup(key_type key, int *pos);
     void buildTree(leveldb::Iterator* iter);
     std::vector<std::vector<void *>> pickInput(int page_count, int* index_start_pos, key_type* start, key_type* end);
     std::vector<std::vector<void *>> getOverlapping(key_type start, key_type end, int* index_start_pos, int* page_count, key_type* ret_start, key_type* ret_end);
     void rangeDelete(std::vector<std::vector<void*>> pages, key_type start, key_type end);
     void rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std::vector<void*>> new_pages, key_type start, key_type end);
 
-private:
-    void print(Pointer8B pnode, int level);
-    void check(Pointer8B pnode, int level, key_type &start, key_type &end, bleaf *&ptr);
-    void checkFirstLeaf(void);
+// private:
+//     void print(Pointer8B pnode, int level);
+//     void check(Pointer8B pnode, int level, key_type &start, key_type &end, bleaf *&ptr);
+//     void checkFirstLeaf(void);
 
-public:
-    void print()
-    {
-        print(tree_meta->tree_root, tree_meta->root_level);
-    }
+// public:
+//     void print()
+//     {
+//         print(tree_meta->tree_root, tree_meta->root_level);
+//     }
 
-    void check(key_type *start, key_type *end)
-    {
-        bleaf *ptr = NULL;
-        check(tree_meta->tree_root, tree_meta->root_level, *start, *end, ptr);
-        checkFirstLeaf();
-    }
+//     void check(key_type *start, key_type *end)
+//     {
+//         bleaf *ptr = NULL;
+//         check(tree_meta->tree_root, tree_meta->root_level, *start, *end, ptr);
+//         checkFirstLeaf();
+//     }
 
-    int level() { return tree_meta->root_level; }
+//     int level() { return tree_meta->root_level; }
 
 }; // lbtree
 }

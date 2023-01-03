@@ -140,6 +140,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       db_lock_(nullptr),
       shutting_down_(false),
       background_work_finished_signal_(&mutex_),
+      pmAlloc_(new PMMemAllocator(options_)),
       mem_(nullptr),
       imm_(nullptr),
       has_imm_(false),
@@ -175,6 +176,7 @@ DBImpl::~DBImpl() {
   delete logfile_;
   delete table_cache_;
   delete cuckoo_filter_;
+  delete pmAlloc_;
 
   if (owns_info_log_) {
     delete options_.info_log;
@@ -516,14 +518,18 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
     
     // TODO
     uint64_t kvCount = mem->kvCount();
-    char *node_mem = new char[256 * (kvCount / NON_LEAF_KEY_NUM - 4)];
+    char *node_mem = (char*)calloc(1, 256 * (kvCount / NON_LEAF_KEY_NUM - 4));
     PMTableBuilder* pb = new PMTableBuilder(pmAlloc_, node_mem);
     iter->SeekToFirst();
+    int count = 0;
     if(iter->Valid()){
       Slice key;
       pb->setMinKey(iter->key());
       for (; iter->Valid(); iter->Next()) {
         key = iter->key();
+        uint64_t curKey = DecodeDBBenchFixed64(key.data());
+        assert(curKey == count);
+        count++;
         pb->add(key, iter->value());
         //cuckoo_filter->Put(ExtractUserKey(key), meta->number);
       }
@@ -599,11 +605,11 @@ void DBImpl::CompactMemTable() {
   Version* base = versions_->current();
   base->Ref();
   Status s;
-  if(options_.use_pm_){
+  // if(options_.use_pm_){
     s = WriteLevel0TableToPM(imm_);
-  }else{
-    s = WriteLevel0Table(imm_, &edit, base);
-  }
+  // }else{
+  //   s = WriteLevel0Table(imm_, &edit, base);
+  // }
   base->Unref();
 
   if (s.ok() && shutting_down_.load(std::memory_order_acquire)) {

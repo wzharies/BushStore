@@ -153,6 +153,7 @@ target_sources(leveldb
     "port/port_stdcxx.h"
     "port/port.h"
     "port/thread_annotations.h"
+    "table/bitmap.h"
     "table/block_builder.cc"
     "table/block_builder.h"
     "table/block.cc"
@@ -165,6 +166,10 @@ target_sources(leveldb
     "table/iterator.cc"
     "table/merger.cc"
     "table/merger.h"
+    "table/pm_table_builder.h"
+    "table/pm_table_builder.cc"
+    "table/pm_mem_alloc.h"
+    "table/pm_mem_alloc.cc"
     "table/table_builder.cc"
     "table/table.cc"
     "table/two_level_iterator.cc"
@@ -294,6 +299,7 @@ endif(HAVE_SNAPPY)
 if(HAVE_TCMALLOC)
   target_link_libraries(leveldb tcmalloc)
 endif(HAVE_TCMALLOC)
+target_link_libraries(leveldb pmem)
 
 # Needed by port_stdcxx.h
 find_package(Threads REQUIRED)

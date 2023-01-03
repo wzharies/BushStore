@@ -27,7 +27,7 @@ public:
     void add(const Slice& key, const Slice& value);
     void setMaxKey(const Slice& key);
     void setMinKey(const Slice& key);
-    std::vector<std::vector<void *>> finish(lbtree *tree);
+    std::vector<std::vector<void *>> finish(lbtree *&tree);
 
     // uint64_t GetFileSize(){
     //     return offset_;

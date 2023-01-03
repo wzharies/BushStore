@@ -9,15 +9,15 @@ public:
     char bitmaps_[];
 
 public:
-    int set(size_t index){
-        if(index > nums_) return 0;
+    void set(size_t index){
+        if(index > nums_) return ;
         int charIndex = (index >> 3);
         int innerIndex = (charIndex & 7);
         bitmaps_[charIndex] |= (1 << innerIndex);
     };
 
-    int clr(size_t index){
-        if(index > nums_) return 0;
+    void clr(size_t index){
+        if(index > nums_) return ;
         int charIndex = (index >> 3);
         int innerIndex = (charIndex & 7);
         bitmaps_[charIndex] ^= (1 << innerIndex);
@@ -31,7 +31,7 @@ public:
     };
 
     void getEmpty(size_t &last_empty){
-        while(!get(last_empty)){
+        while(get(last_empty)){
             last_empty = (last_empty + 1) % nums_;
         }
     }

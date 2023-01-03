@@ -196,10 +196,10 @@ class KeyBuffer {
 
   void Set(int k) {
     std::snprintf(buffer_ + FLAGS_key_prefix,
-                  sizeof(buffer_) - FLAGS_key_prefix, "%016d", k);
+                  sizeof(buffer_) - FLAGS_key_prefix, "%08d", k);
   }
 
-  Slice slice() const { return Slice(buffer_, FLAGS_key_prefix + 16); }
+  Slice slice() const { return Slice(buffer_, FLAGS_key_prefix + 8); }
 
  private:
   char buffer_[1024];
@@ -381,7 +381,7 @@ class Benchmark {
   int total_thread_count_;
 
   void PrintHeader() {
-    const int kKeySize = 16 + FLAGS_key_prefix;
+    const int kKeySize = 8 + FLAGS_key_prefix;
     PrintEnvironment();
     std::fprintf(stdout, "Keys:       %d bytes each\n", kKeySize);
     std::fprintf(
