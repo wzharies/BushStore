@@ -90,6 +90,8 @@ class PMMemAllocator {
   uint64_t GetVpageSize() { return vPage_size_; }
   void Sync();
   const Options& options_;
+  uint64_t kPage_size_;
+  uint64_t vPage_size_;
  private:
   PMExtent* NewExtent(PageType type);
   uint64_t SuitablePageSize(uint64_t page_size);
@@ -98,10 +100,8 @@ class PMMemAllocator {
   std::vector<PMExtent*> Vpage_;
   PMExtent* pages[8];
   uint64_t kPage_slot_count_;
-  uint64_t kPage_size_;
   uint64_t kPage_count_;
   uint64_t vPage_slot_count_;
-  uint64_t vPage_size_;
   uint64_t vPage_count_;
 
   size_t mapped_len_;

@@ -135,8 +135,8 @@ inline uint64_t DecodeDBBenchFixed64(const char* ptr) {
   const uint8_t* const buffer = reinterpret_cast<const uint8_t*>(ptr);
   uint64_t result = 0;
   for(int i = 0; i < 8; i++){
-    assert(buffer[i] >= '0' && buffer[i] <= '9');
-    result |= ((buffer[i] - '0') << ((7 - i) * 8));
+    //assert(buffer[i] >= '0' && buffer[i] <= '9');
+    result |= ((buffer[i]) << ((7 - i) * 8));
   }
   return result;
 }

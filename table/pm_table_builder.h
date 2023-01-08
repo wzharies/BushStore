@@ -32,10 +32,13 @@ public:
     // uint64_t GetFileSize(){
     //     return offset_;
     // }
+    int cur_node_index_;
+
 
 private:
     void flush_kpage();
     void flush_vpage();
+    void* mallocBnode();
 
     PMMemAllocator* pm_alloc_;
     char* node_mem_;
@@ -59,6 +62,9 @@ private:
     uint64_t value_offset_;
     key_type max_key_;
     key_type min_key_;
+
+    uint64_t used_pm_;
+    uint64_t kPage_count_;
 
     // uint64_t begin_offset_;
     // uint64_t keys_meta_size_;

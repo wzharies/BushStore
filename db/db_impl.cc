@@ -518,7 +518,8 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
     
     // TODO
     uint64_t kvCount = mem->kvCount();
-    char *node_mem = (char*)calloc(1, 256 * (kvCount / NON_LEAF_KEY_NUM - 4));
+    int page_count = (kvCount / LEAF_KEY_NUM + 1) / (NON_LEAF_KEY_NUM - 4);
+    char *node_mem = (char*)calloc(1, 256 * page_count);
     PMTableBuilder* pb = new PMTableBuilder(pmAlloc_, node_mem);
     iter->SeekToFirst();
     int count = 0;
@@ -528,11 +529,12 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
       for (; iter->Valid(); iter->Next()) {
         key = iter->key();
         uint64_t curKey = DecodeDBBenchFixed64(key.data());
-        assert(curKey == count);
+        //assert(curKey == count);
         count++;
         pb->add(key, iter->value());
         //cuckoo_filter->Put(ExtractUserKey(key), meta->number);
       }
+      assert(pb->cur_node_index_ <= page_count);
       pb->setMaxKey(key);
       lbtree* tree = nullptr;
       pb->finish(tree);
@@ -779,10 +781,11 @@ Status DBImpl::CompactionPM(int level){
   // 第1和第2层之间compaction，第一层的所有数据与第二层进行compaction。生成一颗子树，第一层的所有tree直接free掉。
   if(level == 0){
     int max_count = Table_L0_.size();
+    assert(max_count != 0);
     if(max_count == 0){
       return Status::OK();
     }
-    std::vector<BP_Iterator*> its;
+    std::vector<BP_Iterator*> its; //need delete
     key_type maxKey = Table_L0_[0]->tree_meta->max_key;
     key_type minKey = Table_L0_[0]->tree_meta->min_key;
     key_type tree2_start;
@@ -790,23 +793,31 @@ Status DBImpl::CompactionPM(int level){
     for(int i = 0; i < max_count; i++){
       maxKey = std::max(maxKey, Table_L0_[i]->tree_meta->max_key);
       minKey = std::min(minKey, Table_L0_[i]->tree_meta->min_key);
-      its.push_back(new BP_Iterator(Table_L0_[i], Table_L0_[i]->tree_meta->pages, Table_L0_[i]->tree_meta->min_key, Table_L0_[i]->tree_meta->max_key));
+      its.push_back(new BP_Iterator(Table_L0_[i], Table_L0_[i]->tree_meta->pages, 1, Table_L0_[i]->tree_meta->kPage_count));
     }
-
-    lbtree* tree2 = Table_LN_[0];
-    int index_start_pos2 = 0;
-    int output_page_count = 0;
-    // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
-    std::vector<std::vector<void *>> pages2 = tree2->getOverlapping(minKey, maxKey, &index_start_pos2, &output_page_count, &tree2_start, &tree2_end);
-    BP_Iterator* it2 = new BP_Iterator(tree2, pages2[1], index_start_pos2, output_page_count);
-    its.push_back(it2);
-    BP_Merge_Iterator* input = new BP_Merge_Iterator(its);
+    lbtree* tree2 = nullptr;
+    std::vector<std::vector<void *>> pages2;
+    if(!Table_LN_.empty()){
+      tree2 = Table_LN_[0];
+      int index_start_pos2 = 0;
+      int output_page_count = 0;
+      // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
+      pages2 = tree2->getOverlapping(minKey, maxKey, &index_start_pos2, &output_page_count, &tree2_start, &tree2_end);
+      BP_Iterator* it2 = new BP_Iterator(tree2, pages2[1], index_start_pos2, output_page_count);
+      its.push_back(it2);
+    }else{
+      
+    }
+    BP_Merge_Iterator* input = new BP_Merge_Iterator(its, user_comparator());
 
     PMTableBuilder builder(pmAlloc_);
     ParsedInternalKey ikey;
     std::string current_user_key;
     bool has_current_user_key = false;
     SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+    if(input->Valid()){
+      builder.setMinKey(input->key());
+    }
     while(input->Valid() && !shutting_down_.load(std::memory_order_acquire)){
       Slice key = input->key();
       bool drop = false;
@@ -846,18 +857,26 @@ Status DBImpl::CompactionPM(int level){
         //修改vPage，bitmap置空
         input->clrValue();
       }
-
+      input->Next();
     }
     lbtree *tree = nullptr;
     // 返回生成的kPage的地址,还有最大最小的key。（最好直接返回子树），同时让这颗子树提供服务
     std::vector<std::vector<void*>> pages3 = builder.finish(tree);
     // replace指定范围的B-Tree的索引和kPage, 自底向上（不会死锁，锁用一个释放一个）
-    tree2->rangeReplace(pages2, pages3, tree2_start, tree2_end);
+    if(tree2 != nullptr){
+      tree2->rangeReplace(pages2, pages3, tree2_start, tree2_end);
+    }else{
+      Table_LN_.push_back(tree);
+    }
     
     for(int i = 0; i < max_count; i++){
       free(Table_L0_[i]->tree_meta->addr);
       delete Table_L0_[i];
     }
+    for(int i = 0; i < its.size(); i++){
+      delete its[i];
+    }
+    delete input;
     Table_L0_.erase(Table_L0_.begin(), Table_L0_.begin() + max_count);
 
   // 第2 层与ssdcompaction。直接删除掉sst文件对应的子树
@@ -882,7 +901,7 @@ Status DBImpl::CompactionPM(int level){
     BP_Iterator* it1 = new BP_Iterator(tree1, pages1[1], index_start_pos1, input_page_count);
     BP_Iterator* it2 = new BP_Iterator(tree2, pages2[1], index_start_pos2, output_page_count);
     std::vector<BP_Iterator*> its = {it1, it2};
-    BP_Merge_Iterator* input = new BP_Merge_Iterator(its);
+    BP_Merge_Iterator* input = new BP_Merge_Iterator(its, user_comparator());
 
     PMTableBuilder builder(pmAlloc_);
     ParsedInternalKey ikey;
@@ -939,6 +958,11 @@ Status DBImpl::CompactionPM(int level){
 
     // replace指定范围的B-Tree的索引和kPage, 自底向上（不会死锁，锁用一个释放一个）
     tree2->rangeReplace(pages2, pages3, tree2_start, tree2_end);
+
+    for(int i = 0; i < its.size(); i++){
+      delete its[i];
+    }
+    delete input;
     
   }
   return Status::OK();
@@ -947,7 +971,7 @@ Status DBImpl::CompactionPM(int level){
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
 
-  if (imm_ != nullptr) {
+  if (imm_ != nullptr && Table_L0_.size() < 10) {
     CompactMemTable();
     //CompactMemTableToPM();
     return;

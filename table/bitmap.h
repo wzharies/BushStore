@@ -12,21 +12,21 @@ public:
     void set(size_t index){
         if(index > nums_) return ;
         int charIndex = (index >> 3);
-        int innerIndex = (charIndex & 7);
+        int innerIndex = (index & 7);
         bitmaps_[charIndex] |= (1 << innerIndex);
     };
 
     void clr(size_t index){
         if(index > nums_) return ;
         int charIndex = (index >> 3);
-        int innerIndex = (charIndex & 7);
+        int innerIndex = (index & 7);
         bitmaps_[charIndex] ^= (1 << innerIndex);
     };
 
     bool get(size_t index){
         if(index > nums_) return 0;
         int charIndex = (index >> 3);
-        int innerIndex = (charIndex & 7);
+        int innerIndex = (index & 7);
         return (bitmaps_[charIndex] >> innerIndex) & 1;
     };
 

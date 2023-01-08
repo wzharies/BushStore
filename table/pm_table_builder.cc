@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
+#include <iostream>
 
 #include "pm_table_builder.h"
 #include "pm_mem_alloc.h"
@@ -34,7 +35,17 @@ namespace leveldb {
 // }
 #define max_size 64 * 1024
 
-PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc, char* node_mem) : pm_alloc_(pm_alloc), node_mem_(node_mem){
+void* PMTableBuilder::mallocBnode(){
+    if(node_mem_ != nullptr){
+        cur_node_index_++;
+        return (void *)(node_mem_ + (cur_node_index_ - 1) * 256);
+    }else{
+        return (bnode*)calloc(1, 256);
+    }
+}
+
+PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc, char* node_mem)\
+     : pm_alloc_(pm_alloc), node_mem_(node_mem), cur_node_index_(0), used_pm_(0), kPage_count_(0){
     key_buf_ = (kPage*)calloc(1, max_size);
     value_buf_ = (vPage*)calloc(1, max_size);
     key_offset_ = 256;
@@ -42,23 +53,26 @@ PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc, char* node_mem) : pm_al
     pages.resize(32);
     leftPages.resize(32);
     value_page_ = (vPage*)pm_alloc_->mallocPage(value_t);
+    used_pm_ += pm_alloc_->vPage_size_;
 }
 
 PMTableBuilder::~PMTableBuilder(){
     free(key_buf_);
     free(value_buf_);
-    //TODO value_page_如果为空是否需要delete
+    //TODO value_page_如果为空是否需要delete(应该已经解决)
 }
 
 void PMTableBuilder::flush_kpage(){
     // kPage* page = pm_alloc_->palloc(key_offset_);
     kPage* page = (kPage*)pm_alloc_->mallocPage(key_t);
+    used_pm_ += pm_alloc_->kPage_size_;
     pages[0].push_back(page);
     if(pm_alloc_->options_.use_pm_){
         pmem_memcpy_persist(page, key_buf_, key_offset_);
     }else {
         memcpy(page, key_buf_, key_offset_);
     }
+    kPage_count_++;
     memset(key_buf_, 0, key_offset_);
     key_offset_ = 256;
     key_type lastKey = page->rawK(0);
@@ -66,7 +80,8 @@ void PMTableBuilder::flush_kpage(){
     for(int i = 1; i < 32;i++){
         max_level_ = std::max(max_level_, i);
         if(leftPages[i] == nullptr){
-            leftPages[i] = (bnode*)calloc(1, 256);
+            // leftPages[i] = (bnode*)calloc(1, 256);
+            leftPages[i] = (bnode*)mallocBnode();
         }
         //key是下一层page的第一个key
         leftPages[i]->k(leftPages[i]->num() + 1) = lastKey;
@@ -105,7 +120,7 @@ void PMTableBuilder::add(const Slice& key, unsigned char finger, uint32_t pointe
     key_buf_->index[key_buf_->nums++] = index;
     key_buf_->max_key = DecodeDBBenchFixed64(key.data());
     key_offset_ += (1 + key.size());
-
+    std::cout<<key_buf_->max_key<<std::endl;
     if(key_buf_->nums == LEAF_KEY_NUM){
         key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         flush_kpage();
@@ -132,6 +147,7 @@ void PMTableBuilder::add(const Slice& key, const Slice& value, unsigned char fin
         value_buf_->bitmap = (1ULL << value_buf_->alloc_num) - 1;
         flush_vpage();
         value_page_ = (vPage*)pm_alloc_->mallocPage(value_t);
+        used_pm_ += pm_alloc_->vPage_size_;
     }
 }
 
@@ -157,6 +173,7 @@ void PMTableBuilder::add(const Slice& key, const Slice& value){
         value_buf_->bitmap = (1ULL << value_buf_->alloc_num) - 1;
         flush_vpage();
         value_page_ = (vPage*)pm_alloc_->mallocPage(value_t);
+        used_pm_ += pm_alloc_->vPage_size_;
     }
 }
 
@@ -167,12 +184,14 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(lbtree *&tree){
     if(key_buf_->nums != 0){
         key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         kPage* page = (kPage*)pm_alloc_->mallocPage(key_t);
+        used_pm_ += pm_alloc_->kPage_size_;
         pages[0].push_back(page);
         if(pm_alloc_->options_.use_pm_){
             pmem_memcpy_persist(page, key_buf_, key_offset_);
         }else {
             memcpy(page, key_buf_, key_offset_);
         }
+        kPage_count_++;
         // memset(key_buf_, 0, key_offset_);
         // key_offset_ = 0;
         lastKey = page->rawK(0);
@@ -183,7 +202,8 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(lbtree *&tree){
         max_level_ = std::max(max_level_, i);
         if(leftPages[i] == nullptr && lastKey != 0){
             //下一层有数据需要索引，但是这一层已经空了
-            leftPages[i] = (bnode*)calloc(1, 256);
+            // leftPages[i] = (bnode*)calloc(1, 256);
+            leftPages[i] = (bnode*)mallocBnode();
         }
         if(lastKey != 0){
             //不可能是满的，之前满的话是会立刻刷入的
@@ -211,9 +231,11 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(lbtree *&tree){
         flush_vpage();
     }else{
         pm_alloc_->freePage((char*)value_page_, key_t);
+        used_pm_ -= pm_alloc_->kPage_size_;
     }
 
-    treeMeta* tree_meta = new treeMeta(Pointer8B(leftPages[max_level_]), max_level_, min_key_, max_key_, pages[1], node_mem_);
+    treeMeta* tree_meta = new treeMeta(Pointer8B(leftPages[max_level_]), max_level_, min_key_, max_key_, pages[1], node_mem_, kPage_count_);
+    tree_meta->cur_size = used_pm_;
     tree = new lbtree(tree_meta);
     return pages;
 }

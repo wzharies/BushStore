@@ -7,10 +7,12 @@ namespace leveldb{
 class BP_Merge_Iterator{
 public:
     BP_Merge_Iterator();
-    BP_Merge_Iterator(std::vector<BP_Iterator*> its) : its_(its){
+    BP_Merge_Iterator(std::vector<BP_Iterator*>& its, const Comparator* comparator) : its_(its), comparator_(comparator){
         FindSmallest();
     }
-    ~BP_Merge_Iterator();
+    ~BP_Merge_Iterator(){
+        
+    }
 
     bool Valid(){ return (current_ != nullptr);}
 
@@ -50,7 +52,7 @@ public:
     }
 
     void clrValue(){
-        return  current_->clrValue();
+        current_->clrValue();
     }
 
     Status status(){
@@ -71,7 +73,7 @@ private:
         }
         current_ = smallest;
     }
-    std::vector<BP_Iterator*> its_;
+    std::vector<BP_Iterator*>& its_;
     const Comparator* comparator_;
     BP_Iterator* current_;
 };

@@ -32,7 +32,7 @@ namespace leveldb {
 /* In a non-leaf, there are NON_LEAF_KEY_NUM keys and NON_LEAF_KEY_NUM+1
  * child pointers.
  */
-#define NON_LEAF_KEY_NUM (NONLEAF_SIZE / (KEY_SIZE + POINTER_SIZE) - 1)
+#define NON_LEAF_KEY_NUM (NONLEAF_SIZE / (KEY_SIZE + POINTER_SIZE) - 1) //15
 
 /* In a leaf, there are 16B header, 14x16B entries, 2x8B sibling pointers.
  */
@@ -241,15 +241,16 @@ public:
     key_type min_key; //L0compaction的时候需要
     key_type max_key;
     std::vector<void*> pages; //only on L0，记录最底层的page地址，方便merge
-    void* addr; // ony on L0;方便直接delete
+    void* addr; // ony on L0;方便直接delet
+    int kPage_count; // L0, iterator需要
 
 public:
     treeMeta(Pointer8B root, int level){
         tree_root = root;
         root_level = level;
     }
-    treeMeta(Pointer8B root, int level, key_type min_key, key_type max_key, std::vector<void*> pages, void* addr)
-        : tree_root(root), root_level(level), min_key(min_key), max_key(max_key), pages(pages) {};
+    treeMeta(Pointer8B root, int level, key_type min_key, key_type max_key, std::vector<void*> pages, void* addr, int kPage_count = 0)
+        : tree_root(root), root_level(level), min_key(min_key), max_key(max_key), pages(pages), addr(addr), kPage_count(kPage_count) {};
 
     // treeMeta(void *nvm_address, int size, bool recover = false)
     // {
