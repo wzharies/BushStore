@@ -20,6 +20,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/testutil.h"
+#include "util/coding.h"
 
 // Comma-separated list of operations to run in the specified order
 //   Actual benchmarks:
@@ -195,8 +196,9 @@ class KeyBuffer {
   KeyBuffer(KeyBuffer& other) = delete;
 
   void Set(int k) {
-    std::snprintf(buffer_ + FLAGS_key_prefix,
-                  sizeof(buffer_) - FLAGS_key_prefix, "%08d", k);
+    EncodeFixed64Reverse(buffer_ + FLAGS_key_prefix, k);
+    // std::snprintf(buffer_ + FLAGS_key_prefix,
+    //               sizeof(buffer_) - FLAGS_key_prefix, "%08d", k);
   }
 
   Slice slice() const { return Slice(buffer_, FLAGS_key_prefix + 8); }

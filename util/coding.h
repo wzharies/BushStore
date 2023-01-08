@@ -75,6 +75,20 @@ inline void EncodeFixed64(char* dst, uint64_t value) {
   buffer[7] = static_cast<uint8_t>(value >> 56);
 }
 
+inline void EncodeFixed64Reverse(char* dst, uint64_t value) {
+  uint8_t* const buffer = reinterpret_cast<uint8_t*>(dst);
+
+  // Recent clang and gcc optimize this to a single mov / str instruction.
+  buffer[0] = static_cast<uint8_t>(value >> 56);
+  buffer[1] = static_cast<uint8_t>(value >> 48);
+  buffer[2] = static_cast<uint8_t>(value >> 40);
+  buffer[3] = static_cast<uint8_t>(value >> 32);
+  buffer[4] = static_cast<uint8_t>(value >> 24);
+  buffer[5] = static_cast<uint8_t>(value >> 16);
+  buffer[6] = static_cast<uint8_t>(value >> 8);
+  buffer[7] = static_cast<uint8_t>(value);
+}
+
 // Lower-level versions of Get... that read directly from a character buffer
 // without any bounds checking.
 
