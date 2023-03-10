@@ -96,7 +96,7 @@ void PMTableBuilder::flush_kpage(){
         //如果这个page装满了, 则放入vector中
         //leftPages[i] = (bnode*)realloc(256);
         pages[i].push_back((void*)leftPages[i]);
-        lastKey = leftPages[i]->k(leftPages[i]->num());
+        lastKey = leftPages[i]->kBegin();
         lastAddr = Pointer8B(leftPages[i]);
         leftPages[i] = nullptr;
     }
@@ -114,11 +114,13 @@ void PMTableBuilder::flush_vpage(){
 
 //这种为重写的情况，传入的时候保证pointer为相对地址
 void PMTableBuilder::add(const Slice& key, unsigned char finger, uint32_t pointer, unsigned char index){
+    // key_count_++;
     key_buf_->finger[key_buf_->nums] = finger;
     key_buf_->pointer[key_buf_->nums] = pointer;
     key_buf_->setk(key_buf_->nums, key);
     key_buf_->index[key_buf_->nums++] = index;
     key_buf_->max_key = DecodeDBBenchFixed64(key.data());
+    max_key_ = key_buf_->max_key;
     key_offset_ += (1 + key.size());
     std::cout<<key_buf_->max_key<<std::endl;
     if(key_buf_->nums == LEAF_KEY_NUM){
@@ -129,11 +131,13 @@ void PMTableBuilder::add(const Slice& key, unsigned char finger, uint32_t pointe
 
 //这种为新写入的情况，需要保证传入的pointer为相对地址
 void PMTableBuilder::add(const Slice& key, const Slice& value, unsigned char finger){
+    // key_count_++;
     key_buf_->finger[key_buf_->nums] = finger;
     key_buf_->pointer[key_buf_->nums] = (reinterpret_cast<uint64_t>(getRelativeAddr(value_page_)) >> 12);
     key_buf_->setk(key_buf_->nums, key);
     key_buf_->index[key_buf_->nums++] = value_buf_->alloc_num;
     key_buf_->max_key = DecodeDBBenchFixed64(key.data());
+    max_key_ = key_buf_->max_key;
     key_offset_ += (1 + key.size());
 
     value_offset_ = value_buf_->setv(value_buf_->alloc_num++, value_offset_, value);
@@ -152,6 +156,7 @@ void PMTableBuilder::add(const Slice& key, const Slice& value, unsigned char fin
 }
 
 void PMTableBuilder::add(const Slice& key, const Slice& value){
+    // key_count_++;
     key_type key64 = DecodeDBBenchFixed64(key.data());
     key_buf_->finger[key_buf_->nums] = hashcode1B(key64);
     // key_buf_->pointer[key_buf_->nums] = (value_buf_ >> 12);
@@ -160,6 +165,7 @@ void PMTableBuilder::add(const Slice& key, const Slice& value){
     key_buf_->setk(key_buf_->nums, key);
     key_buf_->index[key_buf_->nums++] = value_buf_->alloc_num;
     key_buf_->max_key = key64;
+    // max_key_ = key64;
     key_offset_ += key.size();
 
     value_offset_ = value_buf_->setv(value_buf_->alloc_num++, value_offset_, value);
@@ -219,7 +225,7 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(lbtree *&tree){
             assert(leftPages[i]->num() != 0);
             //leftPages[i] = (bnode*)realloc(256);
             pages[i].push_back((void*)leftPages[i]);
-            lastKey = leftPages[i]->k(leftPages[i]->num());
+            lastKey = leftPages[i]->kBegin();
             lastAddr = Pointer8B(leftPages[i]);
             //leftPages[i] = nullptr;
         }
@@ -234,9 +240,12 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(lbtree *&tree){
         used_pm_ -= pm_alloc_->kPage_size_;
     }
 
+    assert(kPage_count_ == pages[0].size());
     treeMeta* tree_meta = new treeMeta(Pointer8B(leftPages[max_level_]), max_level_, min_key_, max_key_, pages[1], node_mem_, kPage_count_);
     tree_meta->cur_size = used_pm_;
     tree = new lbtree(tree_meta);
+    pages.resize(max_level_ + 1);
+    assert(pages.back().size() == 1);
     return pages;
 }
 void PMTableBuilder::setMaxKey(const Slice& key){

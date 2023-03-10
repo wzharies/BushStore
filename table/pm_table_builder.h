@@ -62,6 +62,7 @@ private:
     uint64_t value_offset_;
     key_type max_key_;
     key_type min_key_;
+    // uint64_t key_count_ = 0;
 
     uint64_t used_pm_;
     uint64_t kPage_count_;

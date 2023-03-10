@@ -64,7 +64,7 @@ static const char* FLAGS_benchmarks =
     "snappyuncomp,";
 
 // Number of key/values to place in database
-static int FLAGS_num = 10000000;
+static int FLAGS_num = 2000000;
 
 // Number of read operations to do.  If negative, do FLAGS_num reads.
 static int FLAGS_reads = -1;
@@ -525,6 +525,9 @@ class Benchmark {
         if (num_ < 1) num_ = 1;
       } else if (name == Slice("fillseq")) {
         fresh_db = true;
+        method = &Benchmark::WriteSeq;
+      } else if (name == Slice("fillseqNofresh")) {
+        fresh_db = false;
         method = &Benchmark::WriteSeq;
       } else if (name == Slice("fillbatch")) {
         fresh_db = true;

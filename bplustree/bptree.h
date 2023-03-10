@@ -173,11 +173,26 @@ public:
         num()++;
     }
 
-    key_type &kBegin() { return ent[1].k; }
-    key_type &kEnd() { return ent[num() - 1].k; }
+    key_type &kBegin() { assert(num() > 0); return ent[1].k; }
+    key_type &kEnd() { assert(num() > 0); return ent[num()].k; }
     int search(key_type &key) {
-        // TODO
-        return 0;
+        int first = 1;
+        int last = num() + 1;
+        int mid;
+        while(first < last){
+            mid = first + (last - first)/2;
+            if(k(mid) < key)
+                first = mid + 1;
+            else
+                last = mid;
+        }
+        return first;
+    }
+    
+    void sort(){
+        std::sort(ent + 1, ent + num() + 1, [](const IdxEntry& ent1 ,const IdxEntry& ent2){
+            return ent1.k < ent2.k;
+        });
     }
 
 }; // bnode
@@ -241,7 +256,7 @@ public:
     key_type min_key; //L0compaction的时候需要
     key_type max_key;
     std::vector<void*> pages; //only on L0，记录最底层的page地址，方便merge
-    void* addr; // ony on L0;方便直接delet
+    void* addr = nullptr; // ony on L0;方便直接delet
     int kPage_count; // L0, iterator需要
 
 public:
