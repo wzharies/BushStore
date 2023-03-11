@@ -139,7 +139,7 @@ public:
 public:
     //1-15
     key_type &k(int idx) { return ent[idx].k; }
-    Pointer8B &ch(int idx) { return ent[idx].ch; }
+    Pointer8B &ch(int idx) { assert(idx != 0); return ent[idx].ch; }
 
     char *chEndAddr(int idx)
     {
@@ -159,6 +159,16 @@ public:
         }
         //删除end - start个
         num() = num() - (end - start);
+    }
+
+    void setkandCheck(int index, const key_type& key){
+        if(index + 1 < num()){
+            assert(k(index + 1) > key);
+        }
+        if(index - 1 >= 1){
+            assert(k(index - 1) < key);
+        }
+        k(index) = key;
     }
     bool full(){
         return num() == NON_LEAF_KEY_NUM;
@@ -219,6 +229,9 @@ public:
         // keys[index * 3] = key.size();
         memcpy(keys + index * 16, key.data(), 16);
     }
+    bool isEqual(size_t index, const key_type& key){
+        return key == DecodeDBBenchFixed64(keys + index * 16);
+    }
 };
 
 class vPage{
@@ -228,6 +241,10 @@ public:
     uint64_t bitmap;
     uint32_t offset[LEAF_VALUE_NUM];
     char kvs[]; //4B size + value;
+    char* getValueAddr(size_t index){
+        assert(index < alloc_num);
+        return (char *)((char*)this + offset[index]);
+    }
     leveldb::Slice v(size_t index){
         char* start = (char *)((char*)this + offset[index]);
         uint32_t v_len = leveldb::DecodeFixed32(start);
@@ -293,6 +310,7 @@ class lbtree : public tree
 {
 public: // root and level
     treeMeta *tree_meta;
+    std::atomic<int> reader_count = 0;
 
 public:
     lbtree(treeMeta *meta) : tree_meta(meta){};
@@ -312,6 +330,13 @@ public:
     ~lbtree()
     {
         delete tree_meta;
+    }
+
+    bool isInRange(const key_type& key){
+        if(tree_meta->min_key <= key && key <= tree_meta->max_key){
+            return true;
+        }
+        return false;
     }
 
 // private:

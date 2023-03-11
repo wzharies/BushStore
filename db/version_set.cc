@@ -321,8 +321,6 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
   }
 }
 
-
-
 Status Version::Get(const ReadOptions& options, const LookupKey& k,
                     std::string* value, GetStats* stats, CuckooFilter* cuckoo_filter_) {
   stats->seek_file = nullptr;
@@ -421,6 +419,7 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
   //     return state.s;
   //   }
   // }
+
   ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
   const uint64_t end_micros = vset_->env_->NowMicros();
   vset_->micros[2] += (end_micros - start_micros);

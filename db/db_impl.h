@@ -164,6 +164,8 @@ class DBImpl : public DB {
   const Comparator* user_comparator() const {
     return internal_comparator_.user_comparator();
   }
+  
+  Status GetValueFromTree(const ReadOptions& options, const Slice& key, std::string* value);
 
   // Constant after construction
   Env* const env_;
@@ -219,6 +221,10 @@ class DBImpl : public DB {
   PMMemAllocator * pmAlloc_;
   std::vector<lbtree*> Table_L0_;
   std::vector<lbtree*> Table_LN_;
+  std::vector<lbtree*> Table_LN_TEMP_;
+  std::vector<lbtree*> Table_Delete_;
+  std::mutex mutex_l0_;
+  std::mutex mutex_l1_;
 };
 
 // Sanitize db options.  The caller should delete result.info_log if
