@@ -78,7 +78,7 @@
 #define PAGE_SIZE (4 * KB)
 
 // obtain the starting address of a cache line
-#define getline(addr) \
+#define getLine(addr) \
      (((unsigned long long)(addr)) & (~(unsigned long long)(CACHE_LINE_SIZE - 1)))
 
 // check if address is aligned at line boundary

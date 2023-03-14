@@ -41,13 +41,13 @@ PMMemAllocator::PMMemAllocator(const Options& options) : options_(options), new_
   kPage_slot_count_ = (256 - 16) / 6;
   kPage_size_ =
       SuitablePageSize(256 + kPage_slot_count_ * 16);
-  //算上bitmap的空间
-  kPage_count_ = options_.extent_size_ * 8 / (kPage_size_ * 8 + 1);
+  //算上bitmap的空间, 减去bitmap->num的8Byte，然后每个kpage多用了1bit
+  kPage_count_ = calPageCount(options_.extent_size_, kPage_size_);
 
   vPage_slot_count_ = (256 - 16) / 4;
   vPage_size_ =
       SuitablePageSize(256 + vPage_slot_count_ * (8 + options_.value_size_));
-  vPage_count_ = options_.extent_size_ * 8 / (vPage_size_ * 8 + 1);
+  vPage_count_ = calPageCount(options_.extent_size_, vPage_size_);
 }
 
 PMMemAllocator::~PMMemAllocator(){
@@ -65,6 +65,14 @@ uint64_t PMMemAllocator::SuitablePageSize(uint64_t page_size) {
     return 1024;
   } else if (page_size < 1280) {
     return 1280;
+  } else if (page_size < 4 * 1024){
+    return 4 * 1024;
+  } else if (page_size < 8 * 1024) {
+    return 8 * 1024;
+  } else if (page_size < 16 * 1024){
+    return 16 * 1024;
+  } else if (page_size < 32 * 1024) {
+    return 32 * 1024;
   } else if (page_size < 64 * 1024){
     return 64 * 1024;
   } else if (page_size < 128 * 1024) {
@@ -94,29 +102,33 @@ void* PMMemAllocator::mallocPage(PageType type) {
 
 void PMMemAllocator::freePage(char* addr, PageType type) {
   size_t index = ((uint64_t)addr - base_addr) / options_.extent_size_;
+  assert(index < pages.size());
   pages[index]->freePage(addr);
 }
 
 void PMMemAllocator::Sync() {
-  if (is_pmem_)
-    pmem_persist(reinterpret_cast<void*>(base_addr), mapped_len_);
-  else
-    pmem_msync(reinterpret_cast<void*>(base_addr), mapped_len_);
+  if(options_.use_pm_){
+    if (is_pmem_)
+      pmem_persist(reinterpret_cast<void*>(base_addr), mapped_len_);
+    else
+      pmem_msync(reinterpret_cast<void*>(base_addr), mapped_len_);
+  }
 }
+
 PMExtent* PMMemAllocator::NewExtent(PageType type) {
   PMExtent* pe;
-  assert(new_extent_id_ < options_.pm_size_ / options_.extent_size_);
+  int cur_extent_id = pages.size();
+  assert(cur_extent_id < options_.pm_size_ / options_.extent_size_);
   if (type == key_t) {
-    pe = new PMExtent(kPage_count_, kPage_size_, (char*)getAbsoluteAddr(new_extent_id_ * options_.extent_size_));
-    pages[new_extent_id_] = pe;
-    new_extent_id_++;
+    pe = new PMExtent(kPage_count_, kPage_size_, (char*)getAbsoluteAddr(((uint64_t)cur_extent_id) * options_.extent_size_));
+    pages.push_back(pe);
     Kpage_.push_back(pe);
   } else {
-    pe = new PMExtent(vPage_count_, vPage_size_, (char*)getAbsoluteAddr(new_extent_id_ * options_.extent_size_));
-    pages[new_extent_id_] = pe;
-    new_extent_id_++;
+    pe = new PMExtent(vPage_count_, vPage_size_, (char*)getAbsoluteAddr(((uint64_t)cur_extent_id) * options_.extent_size_));
+    pages.push_back(pe);
     Vpage_.push_back(pe);
   }
+  assert(pe->page_start_addr_ + pe->page_count_ * pe->page_size_ <= (char*)getAbsoluteAddr(((uint64_t)cur_extent_id + 1) * options_.extent_size_));
   return pe;
 }
 

@@ -77,7 +77,7 @@ static inline void clwb(void *addr)
 static inline void clwb2(void *start, void *end)
 {
   clwb(start);
-  if (getline(start) != getline(end))
+  if (getLine(start) != getLine(end))
   {
     clwb(end);
   }
@@ -90,8 +90,8 @@ static inline void clwb2(void *start, void *end)
  */
 static inline void clwbmore(void *start, void *end)
 {
-  unsigned long long start_line = getline(start);
-  unsigned long long end_line = getline(end);
+  unsigned long long start_line = getLine(start);
+  unsigned long long end_line = getLine(end);
   do
   {
     clwb((char *)start_line);
@@ -136,7 +136,7 @@ static inline void clwb(void *addr)
 static inline void clwb2(void *start, void *end)
 {
   num_clwb++;
-  if (getline(start) != getline(end))
+  if (getLine(start) != getLine(end))
   {
     num_clwb++;
   }
@@ -145,8 +145,8 @@ static inline void clwb2(void *start, void *end)
 
 static inline void clwbmore(void *start, void *end)
 {
-  unsigned long long start_line = getline(start);
-  unsigned long long end_line = getline(end);
+  unsigned long long start_line = getLine(start);
+  unsigned long long end_line = getLine(end);
   num_clwb += (end_line + CACHE_LINE_SIZE - start_line) / CACHE_LINE_SIZE;
 
   // printf("clwbmore(%p, %p)\n", start, end);
@@ -664,7 +664,7 @@ public:
   {
     flushLog();
 
-    pos->nextline_ptr_ = (char *)getline(pos->next_ptr_);
+    pos->nextline_ptr_ = (char *)getLine(pos->next_ptr_);
     pos->version_ = (pos->nextline_ptr_[0] & 0x80);
   }
 

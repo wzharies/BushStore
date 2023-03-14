@@ -52,6 +52,12 @@ check_cxx_symbol_exists(fdatasync "unistd.h" HAVE_FDATASYNC)
 check_cxx_symbol_exists(F_FULLFSYNC "fcntl.h" HAVE_FULLFSYNC)
 check_cxx_symbol_exists(O_CLOEXEC "fcntl.h" HAVE_O_CLOEXEC)
 
+# set(CMAKE_VERBOSE_MAKEFILEON ON)
+# add_definitions(-DMY_DEBUG=1)
+# if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+#   add_compile_definitions(DEBUG)
+# endif()
+
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   # Disable C++ exceptions.
   string(REGEX REPLACE "/EH[a-z]+" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")

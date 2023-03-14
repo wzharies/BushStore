@@ -26,6 +26,67 @@ void lbtree::buildTree(Iterator* iter){
     
 }
 
+std::tuple<key_type, key_type> reverseAndCheckNode(int level, bnode *p){
+    key_type minV = UINT64_MAX;
+    key_type maxV = 0;
+    if(level == 1){
+        kPage *next;
+        assert(p->check());
+        key_type preleft = -1;
+        key_type preright = -1;
+        for(int i = 1; i <= p->num(); i++){
+            next = p->ch(i);
+            key_type left = next->minRawKey();
+            key_type right = next->maxRawKey();
+            assert(p->k(i) <= left);
+            if(preleft != -1){
+                assert(preright <= left);
+            }
+            minV = std::min(minV, left);
+            maxV = std::max(maxV, right);
+            preleft = left; 
+            preright = right;
+        }
+        assert(minV <= maxV);
+        return std::make_tuple(minV, maxV);
+    }else{
+        bnode *next;
+        assert(p->check());
+        key_type preleft = -1;
+        key_type preright = -1;
+        for(int i = 1; i <= p->num(); i++){
+            next = p->ch(i);
+            auto [left, right] = reverseAndCheckNode(level - 1, next);
+            if(preleft != -1){
+                assert(preright <= left);
+            }
+            minV = std::min(minV, left);
+            maxV = std::max(maxV, right);
+            preleft = left; 
+            preright = right;
+        }
+        assert(minV <= maxV);
+        return std::make_tuple(minV, maxV);
+    }
+}
+
+void lbtree::reverseAndCheck() {
+    bnode *p = tree_meta->tree_root;
+    bnode *next;
+    assert(p->check());
+    key_type preleft = -1;
+    key_type preright = -1;
+    for(int i = 1; i <= p->num(); i++){
+        next = p->ch(i);
+        auto [left, right] = reverseAndCheckNode(tree_meta->root_level - 1, next);
+        if(preleft != -1){
+            assert(preright <= left);
+        }
+        preleft = left;
+        preright = right;
+    }
+}
+
 std::vector<std::vector<void *>> lbtree::pickInput(int page_count, int* index_start_pos, key_type* start, key_type* end)
 {
     // record the path from root to leaf
@@ -181,7 +242,7 @@ std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type
     key_type key = start;
     volatile long long sum;
     std::vector<std::vector<void *>> page_addr(tree_meta->root_level + 1);
-    std::vector<std::vector<bnode *>> bnodes(tree_meta->root_level + 1);
+    // std::vector<std::vector<bnode *>> bnodes(tree_meta->root_level + 1);
     /* Part 1. get the positions for the compaction key */
     {
         bnode *p;
@@ -267,7 +328,7 @@ std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type
         }
         for (i = tree_meta->root_level; i > 0; i--) {
             page_addr[i].push_back((void *)parray[i]);
-            bnodes[i].push_back((bnode *)parray[i]);
+            // bnodes[i].push_back((bnode *)parray[i]);
         }
 
         *ret_start = ((bnode *)parray[1])->k(ppos[1]);
@@ -302,7 +363,7 @@ std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type
                             goto inner_done2;
                         }
                         page_addr[level - 1].push_back((void *)parray[level - 1]);
-                        bnodes[level - 1].push_back((bnode *)parray[level - 1]);
+                        // bnodes[level - 1].push_back((bnode *)parray[level - 1]);
                         ppos[level - 1] = 1;
                         pnum[level - 1] = ((bnode *)parray[level - 1])->num();
                         level--;
@@ -358,7 +419,7 @@ bnode* splitNode(bnode* node, int start, int end, int skip){
 }
 
 
-void lbtree::rangeDelete(std::vector<std::vector<void*>> pages, key_type start, key_type end){
+void lbtree::rangeDelete(std::vector<std::vector<void*>>& pages, key_type start, key_type end){
     bool endIsDeleted = true;
     key_type new_start;
     //TODO删除后需要压缩
@@ -392,7 +453,7 @@ void lbtree::rangeDelete(std::vector<std::vector<void*>> pages, key_type start, 
             //最后一个page，找到小于end的j，删除[1, j)的所有值
             node = (bnode*)pages[i].back();
             for(int j = node->num(); j >= 1; j--){
-                if(node->k(j) < end){
+                if(node->k(j) <= end){
                     if(endIsDeleted){
                         j = j + 1;
                     }else{
@@ -419,12 +480,12 @@ void lbtree::rangeDelete(std::vector<std::vector<void*>> pages, key_type start, 
 如果start和end是同一个page，且insert的page值超过了当前的 page删除的值，需要进行split
 重要的是如何把Tree的root融入进去。
 */
-void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std::vector<void*>> new_pages, key_type start, key_type end){
+void lbtree::rangeReplace(std::vector<std::vector<void*>>& pages, std::vector<std::vector<void*>>& new_pages, key_type start, key_type end){
     bool endIsDeleted = true;
     key_type new_start;
     bool rootInserted = false;
-    IdxEntry newSplit = {0};
-    IdxEntry newRoot = {0};
+    IdxEntry newSplit = {.k=0, .ch=0};
+    IdxEntry newRoot = {.k=0, .ch=0};
     bool needOldRoot = false;
     //TODO，一个节点内的split，边界情况需要考虑
     for(int i = 1; i < pages.size(); i++){
@@ -449,7 +510,6 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
             if(first > last) last = first;
             // 如果删除是从头到中间
             if(first == 1){
-                assert(newSplit.k == 0);
                 // 如果遍历到了root，则root需要新建一个kv
                 if(i == pages.size() - 1){
                     needOldRoot = true;
@@ -462,11 +522,11 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                         newRoot.k = new_node->k(1);
                         newRoot.ch = (void*)new_node;
                     }
-                    if(newSplit.k != 0){
+                    if(newSplit.ch != 0){
                         if(last > 1){
                             node->setKandCh(1, newSplit.k, newSplit.ch);
                             node->remove(2, last);
-                            newSplit.k = 0;
+                            newSplit.ch = 0;
                         }else{
                             bnode *nextSplit = (bnode*)calloc(1, 256);
                             nextSplit->setKandCh(1, newSplit.k, newSplit.ch);
@@ -476,12 +536,12 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                     }else{
                         node->remove(1, last);
                     }
-                }else if(newRoot.k != 0){
-                    if(newSplit.k != 0){
+                }else if(newRoot.ch != 0){
+                    if(newSplit.ch != 0){
                         if(last > 2){
                             node->setKandCh(1, newRoot.k, newRoot.ch);
                             node->setKandCh(2, newSplit.k, newSplit.ch);
-                            newRoot.k = 0; newSplit.k = 0;
+                            newRoot.ch = 0; newSplit.ch = 0;
                             node->remove(3, last);
                         }else{
                             bnode *nextSplit = (bnode*)calloc(1, 256);
@@ -490,14 +550,14 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             nextSplit->num() = 2;
                             newSplit.k = newRoot.k;
                             newSplit.ch = (void*)nextSplit;
-                            newRoot.k = 0;
+                            newRoot.ch = 0;
                             node->remove(1, last);
                         }
                     }else{
                         if(last > 1){
                             node->setKandCh(1, newRoot.k, newRoot.ch);
                             node->remove(2, last);
-                            newRoot.k = 0;
+                            newRoot.ch = 0;
                         }else{
                             bnode *nextRoot = (bnode*)calloc(1, 256);
                             nextRoot->setKandCh(1, newRoot.k, newRoot.ch);
@@ -505,21 +565,22 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             newRoot.ch = (void*)nextRoot;
                         }
                     }
-                }else if(newSplit.k != 0){
+                }else if(newSplit.ch != 0){
                     if(last > 1){
                         node->setKandCh(1, newSplit.k, newSplit.ch);
                         node->remove(2, last);
-                        newSplit.k = 0;
+                        newSplit.ch = 0;
                     }else{
                         bnode *nextSplit = (bnode*)calloc(1, 256);
                         nextSplit->setKandCh(1, newSplit.k, newSplit.ch);
                         nextSplit->num() = 1;
                         newSplit.ch = (void*)nextSplit;
                     }
+                }else{
+                    node->remove(first, last);
                 }
             // 如果删除是从中间到尾
             }else if(last == node->num() + 1){
-                assert(newSplit.k == 0);
                 // 如果遍历到了root，则root需要新建一个kv
                 if(i == pages.size() - 1){
                     needOldRoot = true;
@@ -527,8 +588,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                 //不需要真正的split了
                 if(i < new_pages.size() - 1){
                     //只需要生成newSplit
-                    assert(newSplit.k == 0);
-                    if(newSplit.k != 0){
+                    if(newSplit.ch != 0){
                         bnode *nextSplit = (bnode*)calloc(1, 256);
                         nextSplit->setKandCh(1, newSplit.k, newSplit.ch);
                         nextSplit->num() = 1;
@@ -538,21 +598,22 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                 }else if(i == new_pages.size() - 1){
                     //可以吧newSplit合入root，并且生成newRoot
                     bnode* rootNode = (bnode*)new_pages.back().front();
-                    if(newSplit.k != 0 && !rootNode->full()){
+                    if(newSplit.ch != 0 && !rootNode->full()){
                         rootNode->insert(rootNode->num() + 1, newSplit.k, newSplit.ch);
-                        newSplit.k = 0;
+                        newSplit.ch = 0;
                     }
                     newRoot.k = rootNode->k(1);
                     newRoot.ch = (void*)rootNode;
                     node->remove(first, last);
-                }else if(newRoot.k != 0){
+                }else if(newRoot.ch != 0){
                     //将2个节点放到后面的空位，没有则继续生成newRoot;
-                    if(newSplit.k != 0){
+                    if(newSplit.ch != 0){
                         if(first < NON_LEAF_KEY_NUM){
+                            if(first == last) node->num() += 2;
                             node->setKandCh(first, newRoot.k, newRoot.ch);
                             node->setKandCh(first + 1,newSplit.k, newSplit.ch);
                             node->remove(first + 2, last);
-                            newRoot.k = 0; newSplit.k = 0;
+                            newRoot.ch = 0; newSplit.ch = 0;
                         }else{
                             bnode *nextSplit = (bnode*)calloc(1, 256);
                             nextSplit->setKandCh(1, newRoot.k, newRoot.ch);
@@ -560,14 +621,15 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             nextSplit->num() = 2;
                             //newRoot.k重复利用
                             newRoot.ch = (void*)nextSplit;
-                            newSplit.k = 0;
+                            newSplit.ch = 0;
                             node->remove(first, last);
                         }
                     }else{
                         if(first <= NON_LEAF_KEY_NUM){
+                            if(first == last) node->num() += 1;
                             node->setKandCh(first, newRoot.k, newRoot.ch);
                             node->remove(first + 1, last);
-                            newRoot.k = 0;
+                            newRoot.ch = 0;
                         }else{
                             bnode *nextSplit = (bnode*)calloc(1, 256);
                             nextSplit->setKandCh(1, newRoot.k, newRoot.ch);
@@ -576,11 +638,12 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             node->remove(first, last);
                         }
                     }
-                }else if(newSplit.k != 0){
+                }else if(newSplit.ch != 0){
                     if(first <= NON_LEAF_KEY_NUM){
+                        if(first == last) node->num() += 1;
                         node->setKandCh(first, newSplit.k, newSplit.ch);
                         node->remove(first + 1, last);
-                        newSplit.k = 0;
+                        newSplit.ch = 0;
                     }else{
                         bnode *nextSplit = (bnode*)calloc(1, 256);
                         nextSplit->setKandCh(1, newSplit.k, newSplit.ch);
@@ -588,16 +651,18 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                         newSplit.ch = (void*)nextSplit;
                         node->remove(first, last);
                     }
+                }else{
+                    node->remove(first, last);
                 }
             }else{
                 bnode* newNode = nullptr;
                 // 如果没有遍历到root
                 if(i < new_pages.size() - 1){
                     //page需要分裂，并且增加一个newSplit, 如果有上一层的newSplit，也需要插入
-                    if(newSplit.k != 0){
+                    if(newSplit.ch != 0){
                         newNode = splitNode(node, first, last, 1);
                         newNode->setKandCh(1, newSplit.k, newSplit.ch);
-                        newSplit.k = 0;
+                        newSplit.ch = 0;
                     }else{
                         newNode = splitNode(node, first, last, 0);
                     }
@@ -606,9 +671,9 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                     assert(new_pages.back().size() == 1);
                     bnode * new_node = (bnode *)new_pages.back().front();
                     //分裂后再插入（不可能无法插入），增加newSplit
-                    int left = NON_LEAF_KEY_NUM - (first - 1);
-                    int splitCount = newSplit.k != 0 ? 1 : 0;
-                    if(new_node->num() + splitCount> left){
+                    int left = NON_LEAF_KEY_NUM - (first - 1);  //计算分裂后，leftNode的剩余空间
+                    int splitCount = newSplit.ch != 0 ? 1 : 0;
+                    if(new_node->num() + splitCount> left){ // TODO 可以直接放下不用分裂
                         newNode = splitNode(node, first, last, new_node->num() + splitCount - left);
                     }else{
                         newNode = splitNode(node, first, last, 0);
@@ -620,17 +685,17 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             newNode->setKandCh(j - left, new_node->k(j), new_node->ch(j));
                         }
                     }
-                    if(newSplit.k != 0){
+                    if(newSplit.ch != 0){
                         if(!node->full()){
                             node->insert(node->num()+1, newSplit.k, newSplit.ch);
                         }else{
                             newNode->setKandCh(new_node->num() + 1 - left, newSplit.k, newSplit.ch);
                         }
-                        newSplit.k = 0;
+                        newSplit.ch = 0;
                     }
-                }else if(newRoot.k != 0){
+                }else if(newRoot.ch != 0){
                     //如果能直接放下就不需要分裂
-                    if(newSplit.k != 0){
+                    if(newSplit.ch != 0){
                         // TODO，可以尝试直接插入
                         //可以直接放下
                         if(last - first >= 2){
@@ -646,8 +711,8 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             //比较少见的情况，分裂后新节点也无法放下
                             assert(false);
                         }
-                        newRoot.k = 0;
-                        newSplit.k = 0;
+                        newRoot.ch = 0;
+                        newSplit.ch = 0;
                     }else{
                         //可以直接放下
                         if(last - first >= 1){
@@ -662,9 +727,9 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                                 newNode->setKandCh(1, newRoot.k, newRoot.ch);
                             }
                         }
-                        newRoot.k = 0;
+                        newRoot.ch = 0;
                     }
-                }else if(newSplit.k != 0){
+                }else if(newSplit.ch != 0){
                     if(last > first){
                         //能直接放下
                         node->setKandCh(first, newSplit.k, newSplit.ch);
@@ -679,7 +744,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                             newNode->setKandCh(1, newSplit.k, newSplit.ch);
                         }
                     }
-                    newSplit.k = 0;
+                    newSplit.ch = 0;
                 }
                 if(newNode != nullptr){
                     newSplit.k = newNode->k(1);
@@ -695,9 +760,9 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
             assert(node->num() >= 0);
             if(node->num() == 0){
                 free(node);
-            }else if(newRoot.k != 0 && !node->full()){
+            }else if(newRoot.ch != 0 && !node->full()){
                 node->insert(node->num() + 1, newRoot.k, newRoot.ch);
-                newRoot.k = 0;
+                newRoot.ch = 0;
             }
             // 2. 删除中间的node
             for(int j = 1; j < pages[i].size() - 1; j++){
@@ -707,7 +772,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
             node = (bnode*)pages[i].back();
             int last;
             for(last = node->num(); last >= 1; last--){
-                if(node->k(last) < end){
+                if(node->k(last) <= end){
                     if(endIsDeleted){
                         last = last + 1;
                     }else{
@@ -717,10 +782,10 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                 }
             }
             if(last > 1){
-                if(newRoot.k != 0){
+                if(newRoot.ch != 0){
                     node->setKandCh(1, newRoot.k, newRoot.ch);
                     node->remove(2, last);
-                    newRoot.k = 0;
+                    newRoot.ch = 0;
                 }else{
                     node->remove(1, last);
                 }
@@ -732,7 +797,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
                 newRoot.k = new_node->k(1);
                 newRoot.ch = Pointer8B(new_node);
             //如果不是root则newPages不需要处理，但如果有newRoot，则需要再生成一个newRoot插入
-            }else if(newRoot.k != 0){
+            }else if(newRoot.ch != 0){
                 bnode* newNode = (bnode*)calloc(1, 256);
                 newNode->insert(1, newRoot.k, newRoot.ch);
                 newRoot.ch = (void*)newNode;
@@ -747,7 +812,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
         }
     }
     //全部遍历完了，只是root分裂了有newRoot和newSplit（最多2个kv）
-    if(new_pages.size() <= pages.size() && (newRoot.k != 0 || newSplit.k != 0)){
+    if(new_pages.size() <= pages.size() && (newRoot.ch != 0 || newSplit.ch != 0)){
         bnode* new_root = (bnode*)calloc(1, 256);
         int cur = 1;
         //这个是pages新生成的root
@@ -756,11 +821,11 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
             new_root->insert(cur++, oldRoot->k(1), (void*)oldRoot);
         }
         //这个是newPages新生成的root
-        if(newRoot.k != 0){
+        if(newRoot.ch != 0){
             new_root->insert(cur++, newRoot.k, newRoot.ch);
         }
         //这个是newPages Split之后生成的root
-        if(newSplit.k != 0){
+        if(newSplit.ch != 0){
             new_root->insert(cur++, newSplit.k, newSplit.ch);
         }
         new_root->sort();
@@ -775,7 +840,7 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std
             bnode* oldRoot = (bnode*)pages.back().front();
             firstNode->insert(1, oldRoot->k(1), (void*)oldRoot);
         }
-        if(newSplit.k != 0){
+        if(newSplit.ch != 0){
             lastNode->insert(lastNode->num() + 1, newSplit.k, newSplit.ch);
         }
         tree_meta->tree_root = new_pages.back().back();
@@ -884,10 +949,10 @@ Again1:
     }
     uint64_t ret_addr;
     // TODO,可能出现hash碰撞？还需要对比Key是否相同
-    for(int i = 0; i < LEAF_KEY_NUM; i++){
+    for(int i = 0; i < kp->nums; i++){
         if(kp->finger[i] == key_hash && kp->isEqual(i, key)){   
             *pos = i;
-            vp = (vPage* )(getAbsoluteAddr(kp->pointer[i] << 12));
+            vp = (vPage* )(getAbsoluteAddr(((uint64_t)kp->pointer[i]) << 12));
             vIndex = kp->index[i];
             return vp->getValueAddr(vIndex);
         }

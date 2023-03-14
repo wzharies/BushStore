@@ -115,14 +115,16 @@ void PMTableBuilder::flush_vpage(){
 //这种为重写的情况，传入的时候保证pointer为相对地址
 void PMTableBuilder::add(const Slice& key, unsigned char finger, uint32_t pointer, unsigned char index){
     // key_count_++;
+    key_type key64 = DecodeDBBenchFixed64(key.data());
+    assert(key_buf_->max_key <= key64);
     key_buf_->finger[key_buf_->nums] = finger;
     key_buf_->pointer[key_buf_->nums] = pointer;
     key_buf_->setk(key_buf_->nums, key);
     key_buf_->index[key_buf_->nums++] = index;
-    key_buf_->max_key = DecodeDBBenchFixed64(key.data());
+    key_buf_->max_key = key64;
     max_key_ = key_buf_->max_key;
-    key_offset_ += (1 + key.size());
-    std::cout<<key_buf_->max_key<<std::endl;
+    key_offset_ += (key.size());
+    // std::cout<<key_buf_->max_key<<std::endl;
     if(key_buf_->nums == LEAF_KEY_NUM){
         key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         flush_kpage();
@@ -132,13 +134,16 @@ void PMTableBuilder::add(const Slice& key, unsigned char finger, uint32_t pointe
 //这种为新写入的情况，需要保证传入的pointer为相对地址
 void PMTableBuilder::add(const Slice& key, const Slice& value, unsigned char finger){
     // key_count_++;
+    key_type key64 = DecodeDBBenchFixed64(key.data());
+    assert(key_buf_->max_key <= key64);
     key_buf_->finger[key_buf_->nums] = finger;
     key_buf_->pointer[key_buf_->nums] = (reinterpret_cast<uint64_t>(getRelativeAddr(value_page_)) >> 12);
     key_buf_->setk(key_buf_->nums, key);
     key_buf_->index[key_buf_->nums++] = value_buf_->alloc_num;
-    key_buf_->max_key = DecodeDBBenchFixed64(key.data());
+    key_buf_->max_key = key64;
+    // std::cout<<key_buf_->max_key<<std::endl;
     max_key_ = key_buf_->max_key;
-    key_offset_ += (1 + key.size());
+    key_offset_ += (key.size());
 
     value_offset_ = value_buf_->setv(value_buf_->alloc_num++, value_offset_, value);
 
@@ -158,15 +163,18 @@ void PMTableBuilder::add(const Slice& key, const Slice& value, unsigned char fin
 void PMTableBuilder::add(const Slice& key, const Slice& value){
     // key_count_++;
     key_type key64 = DecodeDBBenchFixed64(key.data());
+    assert(key_buf_->max_key <= key64);
     key_buf_->finger[key_buf_->nums] = hashcode1B(key64);
     // key_buf_->pointer[key_buf_->nums] = (value_buf_ >> 12);
-    // uint32_t temp = getRelativeAddr(value_page_);
-    key_buf_->pointer[key_buf_->nums] = getRelativeAddr(value_page_) >> 12;
+    uint32_t temp = getRelativeAddr(value_page_) >> 12;
+    //assert(temp!=1112352);
+    key_buf_->pointer[key_buf_->nums] = (reinterpret_cast<uint64_t>(getRelativeAddr(value_page_)) >> 12);
     key_buf_->setk(key_buf_->nums, key);
     key_buf_->index[key_buf_->nums++] = value_buf_->alloc_num;
     key_buf_->max_key = key64;
-    // max_key_ = key64;
-    key_offset_ += key.size();
+    // std::cout<<key_buf_->max_key<<std::endl;
+    max_key_ = key64;
+    key_offset_ += (key.size());
 
     value_offset_ = value_buf_->setv(value_buf_->alloc_num++, value_offset_, value);
 
@@ -183,7 +191,7 @@ void PMTableBuilder::add(const Slice& key, const Slice& value){
     }
 }
 
-std::vector<std::vector<void *>> PMTableBuilder::finish(lbtree *&tree){
+std::vector<std::vector<void *>> PMTableBuilder::finish(std::shared_ptr<lbtree> &tree){
     //只要不为空就需要进行存储
     key_type lastKey = 0;
     Pointer8B lastAddr = Pointer8B(0);
@@ -243,7 +251,8 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(lbtree *&tree){
     assert(kPage_count_ == pages[0].size());
     treeMeta* tree_meta = new treeMeta(Pointer8B(leftPages[max_level_]), max_level_, min_key_, max_key_, pages[1], node_mem_, kPage_count_);
     tree_meta->cur_size = used_pm_;
-    tree = new lbtree(tree_meta);
+    tree = std::make_shared<lbtree>(tree_meta);
+    assert(pages[max_level_ + 1].size() == 0);
     pages.resize(max_level_ + 1);
     assert(pages.back().size() == 1);
     return pages;

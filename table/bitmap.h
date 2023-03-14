@@ -1,6 +1,8 @@
 #ifndef STORAGE_LEVELDB_TABLE_BITMAP_H_
 #define STORAGE_LEVELDB_TABLE_BITMAP_H_
 #include<memory>
+#include<iostream>
+#include<cassert>
 
 namespace leveldb{
 class Bitmap{
@@ -13,6 +15,7 @@ public:
         if(index > nums_) return ;
         int charIndex = (index >> 3);
         int innerIndex = (index & 7);
+        assert(!get(index));
         bitmaps_[charIndex] |= (1 << innerIndex);
     };
 
@@ -20,6 +23,7 @@ public:
         if(index > nums_) return ;
         int charIndex = (index >> 3);
         int innerIndex = (index & 7);
+        assert(get(index));
         bitmaps_[charIndex] ^= (1 << innerIndex);
     };
 
@@ -33,6 +37,9 @@ public:
     void getEmpty(size_t &last_empty){
         while(get(last_empty)){
             last_empty = (last_empty + 1) % nums_;
+            if(last_empty == 0){
+                // std::cout<<"new allocator nums : "<< nums_ <<std::endl;
+            }
         }
     }
 };

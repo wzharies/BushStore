@@ -153,6 +153,7 @@ public:
         ent[idx].ch = ch;
     }
     void remove(int start, int end){
+        if(start >= end) return ;
         for(int i = end; i <= num(); i++){
             k(i - end + start) = k(i);
             ch(i - end + start) = ch(i);
@@ -162,12 +163,13 @@ public:
     }
 
     void setkandCheck(int index, const key_type& key){
-        if(index + 1 < num()){
-            assert(k(index + 1) > key);
-        }
-        if(index - 1 >= 1){
-            assert(k(index - 1) < key);
-        }
+        // 某些场景中，中间状态可以相等
+        // if(index + 1 < num()){
+        //     assert(k(index + 1) >= key);
+        // }
+        // if(index - 1 >= 1){
+        //     assert(k(index - 1) <= key);
+        // }
         k(index) = key;
     }
     bool full(){
@@ -205,6 +207,16 @@ public:
         });
     }
 
+    bool check(){
+        assert(num() <= NON_LEAF_KEY_NUM);
+        for(int i = 1; i < num(); i++){
+            if(k(i) > k(i + 1)){
+                return false;
+            }
+        }
+        return true;
+    }
+
 }; // bnode
 
 
@@ -232,10 +244,17 @@ public:
     bool isEqual(size_t index, const key_type& key){
         return key == DecodeDBBenchFixed64(keys + index * 16);
     }
+    key_type minRawKey(){
+        return rawK(0);
+    }
+    key_type maxRawKey(){
+        return rawK(nums - 1);
+    }
 };
 
 class vPage{
 public:
+    // 4 + 4 + 8 + 4 * n = 256
     uint32_t total_num;
     uint32_t alloc_num;
     uint64_t bitmap;
@@ -255,6 +274,15 @@ public:
         memcpy((char*)this + 4 + off, value.data(), value.size());
         offset[index] = off;
         return off + 4 + value.size();
+    }
+    void clrBitMap(int index){
+        assert(index < alloc_num);
+        bitmap = bitmap & (~(1ULL << index));
+    }
+
+    bool getBitMap(int index){
+        assert(index < alloc_num);
+        return (bitmap >> index) & 1;
     }
 };
 
@@ -310,7 +338,7 @@ class lbtree : public tree
 {
 public: // root and level
     treeMeta *tree_meta;
-    std::atomic<int> reader_count = 0;
+    // std::atomic<int> reader_count = 0;
 
 public:
     lbtree(treeMeta *meta) : tree_meta(meta){};
@@ -329,6 +357,9 @@ public:
 
     ~lbtree()
     {
+        if(tree_meta->addr != nullptr){
+            free(tree_meta->addr);
+        }
         delete tree_meta;
     }
 
@@ -338,6 +369,8 @@ public:
         }
         return false;
     }
+
+    void reverseAndCheck();
 
 // private:
 //     int bulkloadSubtree(keyInput *input, int start_key, int num_key,
@@ -398,8 +431,8 @@ public:
     void buildTree(leveldb::Iterator* iter);
     std::vector<std::vector<void *>> pickInput(int page_count, int* index_start_pos, key_type* start, key_type* end);
     std::vector<std::vector<void *>> getOverlapping(key_type start, key_type end, int* index_start_pos, int* page_count, key_type* ret_start, key_type* ret_end);
-    void rangeDelete(std::vector<std::vector<void*>> pages, key_type start, key_type end);
-    void rangeReplace(std::vector<std::vector<void*>> pages, std::vector<std::vector<void*>> new_pages, key_type start, key_type end);
+    void rangeDelete(std::vector<std::vector<void*>>& pages, key_type start, key_type end);
+    void rangeReplace(std::vector<std::vector<void*>>& pages, std::vector<std::vector<void*>>& new_pages, key_type start, key_type end);
 
 // private:
 //     void print(Pointer8B pnode, int level);

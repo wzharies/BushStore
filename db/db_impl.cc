@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/db_impl.h"
-
+#include <iostream>
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -13,6 +12,7 @@
 #include <vector>
 #include <climits>
 
+#include "db/db_impl.h"
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -38,6 +38,10 @@
 #include "util/mutexlock.h"
 #include "bplustree/bp_iterator.h"
 #include "bplustree/bp_merge_iterator.h"
+
+// #define MY_DEBUG
+
+// #define DEBUG_PRINT
 
 namespace leveldb {
 
@@ -519,7 +523,7 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
     
     // TODO
     uint64_t kvCount = mem->kvCount();
-    int page_count = (kvCount / LEAF_KEY_NUM + 1) / (NON_LEAF_KEY_NUM - 4);
+    int page_count = ((kvCount / LEAF_KEY_NUM) + 1) / (NON_LEAF_KEY_NUM - 4) + 7;
     char *node_mem = (char*)calloc(1, 256 * page_count);
     PMTableBuilder* pb = new PMTableBuilder(pmAlloc_, node_mem);
     iter->SeekToFirst();
@@ -537,7 +541,7 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
       }
       assert(pb->cur_node_index_ <= page_count);
       pb->setMaxKey(key);
-      lbtree* tree = nullptr;
+      std::shared_ptr<lbtree> tree = nullptr;
       pb->finish(tree);
       mutex_l0_.lock();
       Table_L0_.push_back(tree);
@@ -772,8 +776,22 @@ void DBImpl::BackgroundCall() {
   background_work_finished_signal_.SignalAll();
 }
 
+void DBImpl::checkAndSetGC(){
+  double usage = pmAlloc_->getMemoryUsabe();
+  if(usage > 0.9) {
+    needGC = true;
+  }else if(usage < 0.8){
+    needGC = false;
+  }
+
+#ifdef DEBUG_PRINT
+  printf("memoryUsage : %.2lf\n", usage);
+#endif
+  // needGC = true;
+}
+
 bool DBImpl::isNeedGC(){
-  return false;
+  return needGC;
 }
 
 int DBImpl::PickCompactionPM(){
@@ -788,20 +806,20 @@ int DBImpl::PickCompactionPM(){
   return -1;
 }
 
-void tryDeleteTable(std::vector<lbtree*>& table){
-  std::vector<lbtree*> newTable;
-  for(int i = 0; i < table.size(); i++){
-    // 如果有正在读取的人，则不释放，否者可以直接释放资源
-    int expected = 0;
-    if(table[i]->reader_count.compare_exchange_weak(expected, INT_MIN)){
-      free(table[i]->tree_meta->addr);
-      delete table[i];
-    }else{
-      newTable.push_back(table[i]);
-    }
-  }
-  std::swap(table, newTable);
-}
+// void tryDeleteTable(std::vector<lbtree*>& table){
+//   std::vector<lbtree*> newTable;
+//   for(int i = 0; i < table.size(); i++){
+//     // 如果有正在读取的人，则不释放，否者可以直接释放资源
+//     int expected = 0;
+//     if(table[i]->reader_count.compare_exchange_weak(expected, INT_MIN)){
+//       free(table[i]->tree_meta->addr);
+//       delete table[i];
+//     }else{
+//       newTable.push_back(table[i]);
+//     }
+//   }
+//   std::swap(table, newTable);
+// }
 
 /*
 1: 100M * 10;
@@ -815,24 +833,25 @@ Status DBImpl::CompactionPM(int level){
   // TODO, 如果L0的范围与L1不重合，则也可以进行优化 
   // TODO， 如果L0的数量与L1相差太大。。。
   // finished TODO，每次compaction的时候不需要把L0与L1全部compaction，因为划分成不重叠的子部分进行compaction。
-
+  checkAndSetGC();
   if(level == 0){
     // 1. 将L0的table排序，这次compaction需要将L0中的table清空掉
     mutex_l0_.lock();
-    std::vector<lbtree*> Table_L0_Sorted = Table_L0_;
+    std::vector<std::shared_ptr<lbtree>> Table_L0_Merge = Table_L0_;
     mutex_l0_.unlock();
 
-    std::sort(Table_L0_Sorted.begin(), Table_L0_Sorted.end(), [](lbtree* tree1, lbtree* tree2){
-      if(tree1->tree_meta->min_key == tree2->tree_meta->min_key){
-        return tree1->tree_meta->max_key < tree2->tree_meta->max_key;
-      }
-      return tree1->tree_meta->min_key < tree2->tree_meta->min_key;
-    });
+    // std::sort(Table_L0_Sorted.begin(), Table_L0_Sorted.end(), [](lbtree* tree1, lbtree* tree2){
+    //   if(tree1->tree_meta->min_key == tree2->tree_meta->min_key){
+    //     return tree1->tree_meta->max_key < tree2->tree_meta->max_key;
+    //   }
+    //   return tree1->tree_meta->min_key < tree2->tree_meta->min_key;
+    // });
 
-    if(Table_L0_Sorted.empty()){
+    // if(Table_L0_Sorted.empty()){
     
-    }
-    std::vector<lbtree*> Table_L0_Merge = Table_L0_Sorted;
+    // }
+    // std::vector<lbtree*> Table_L0_Merge = Table_L0_Sorted;
+    std::reverse(Table_L0_Merge.begin(), Table_L0_Merge.end());
     // if(Table_L0_Sorted.empty()){
     //   assert(false);
     //   return Status::OK();
@@ -865,9 +884,9 @@ Status DBImpl::CompactionPM(int level){
     for(int i = 0; i < max_count; i++){
       maxKey = std::max(maxKey, Table_L0_Merge[i]->tree_meta->max_key);
       minKey = std::min(minKey, Table_L0_Merge[i]->tree_meta->min_key);
-      its.push_back(new BP_Iterator(Table_L0_Merge[i], Table_L0_Merge[i]->tree_meta->pages, 1, Table_L0_Merge[i]->tree_meta->kPage_count));
+      its.push_back(new BP_Iterator(pmAlloc_, Table_L0_Merge[i].get(), Table_L0_Merge[i]->tree_meta->pages, 1, Table_L0_Merge[i]->tree_meta->kPage_count));
     }
-    lbtree* tree2 = nullptr;
+    std::shared_ptr<lbtree> tree2 = nullptr;
     std::vector<std::vector<void *>> pages2;
     // TODO，如果范围不重叠，不需BuildTable重写
     if(!Table_LN_.empty()){
@@ -877,7 +896,7 @@ Status DBImpl::CompactionPM(int level){
       // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
       pages2 = tree2->getOverlapping(minKey, maxKey, &index_start_pos2, &output_page_count, &tree2_start, &tree2_end);
       //std::vector<std::vector<bnode*>> pages3;
-      BP_Iterator* it2 = new BP_Iterator(tree2, pages2[1], index_start_pos2, output_page_count);
+      BP_Iterator* it2 = new BP_Iterator(pmAlloc_, tree2.get(), pages2[1], index_start_pos2, output_page_count);
       its.push_back(it2);
     }else{
       
@@ -919,28 +938,30 @@ Status DBImpl::CompactionPM(int level){
         last_sequence_for_key = ikey.sequence;
       }
       if(!drop){
-        //重写到新的kPage，用旧的索引
-        builder.add(key, input->finger(), input->pointer(), input->index());
         if(isNeedGC()){
           //重写到新的kPage，用新的索引
+          // 1. kPage中的数据重写
           builder.add(key, input->value(), input->finger());
+          // 2. 旧的vPage中的数据删除
           input->clrValue();
+        }else{
+          //重写到新的kPage，用旧的索引，kPage中的数据重写，vPage中的数据不动
+          builder.add(key, input->finger(), input->pointer(), input->index());
         }
-
       }else{
         //修改vPage，bitmap置空
         input->clrValue();
       }
       input->Next();
     }
-    lbtree *tree = nullptr;
+    std::shared_ptr<lbtree> tree = nullptr;
     // 返回生成的kPage的地址,还有最大最小的key。（最好直接返回子树），同时让这颗子树提供服务
     std::vector<std::vector<void*>> pages3 = builder.finish(tree);
 
     // replace指定范围的B-Tree的索引和kPage, 自底向上（不会死锁，锁用一个释放一个）
     {
       std::lock_guard<std::mutex> lock(mutex_l1_);
-      if(tree2 != nullptr && minKey <= tree2->tree_meta->min_key && tree2->tree_meta->max_key <= maxKey){
+      if(tree2 != nullptr && tree->tree_meta->min_key <= tree2->tree_meta->min_key && tree2->tree_meta->max_key <= tree->tree_meta->max_key){
         Table_LN_[0] = tree;
         for(int i = 1; i < pages2.size(); i++){
           for(int j = 0; j < pages2[i].size(); j++){
@@ -950,12 +971,19 @@ Status DBImpl::CompactionPM(int level){
       }else if(tree2 != nullptr){
         tree2->tree_meta->kPage_count += (pages3[0].size() - pages2[0].size());
         tree2->rangeReplace(pages2, pages3, tree->tree_meta->min_key, tree->tree_meta->max_key);
+#ifdef DEBUG_PRINT
+        //std::cout<< "min key : " << tree->tree_meta->min_key << " max key : " << tree->tree_meta->max_key << std::endl;
+#endif
         // tree2->rangeReplace(pages2, pages3, tree2_start, tree2_end);
         tree2->tree_meta->min_key = std::min(tree2->tree_meta->min_key, minKey);
         tree2->tree_meta->max_key = std::max(tree2->tree_meta->max_key, maxKey);
       }else{
         Table_LN_.push_back(tree);
       }
+
+#ifdef MY_DEBUG
+      Table_LN_[0]->reverseAndCheck();
+#endif
     }
     for(int i = 0; i < its.size(); i++){
       delete its[i];
@@ -963,112 +991,106 @@ Status DBImpl::CompactionPM(int level){
     delete input;
 
     // 释放L0的资源
-    // 0. 尝试释放table_delete中的资源
-    tryDeleteTable(Table_Delete_);
-
     // 1. delete L0 table
     mutex_l0_.lock();
     Table_L0_.erase(Table_L0_.begin(), Table_L0_.begin() + Table_L0_Merge.size());
     mutex_l0_.unlock();
 
-    // 2. release tree
-    for(int i = 0; i < max_count; i++){
-      // 如果有正在读取的人，则放入Table_delete中，否者可以直接释放资源
-      int expected = 0;
-      if(Table_L0_Merge[i]->reader_count.compare_exchange_weak(expected, INT_MIN)){
-        if(Table_L0_Merge[i]->tree_meta->addr != nullptr ){
-          free(Table_L0_Merge[i]->tree_meta->addr);
-        }
-        delete Table_L0_Merge[i];
-      }else{
-        assert(expected > 0);
-        Table_Delete_.push_back(Table_L0_Merge[i]);
-      }
-    }
+    // // 2. release tree
+    // for(int i = 0; i < max_count; i++){
+    //   // 如果有正在读取的人，则放入Table_delete中，否者可以直接释放资源
+    //   int expected = 0;
+    //   if(Table_L0_Merge[i]->reader_count.compare_exchange_weak(expected, INT_MIN)){
+    //     delete Table_L0_Merge[i];
+    //   }else{
+    //     assert(expected > 0);
+    //     Table_Delete_.push_back(Table_L0_Merge[i]);
+    //   }
+    // }
   // 第2 层与ssdcompaction。直接删除掉sst文件对应的子树
   }else if(level >= Table_LN_.size()){
     
   // 中间这一层是否需要？   
   }else{
-    int index_start_pos1 = 0;
-    int index_start_pos2 = 0;
-    key_type tree1_start;
-    key_type tree1_end;
-    key_type tree2_start;
-    key_type tree2_end;
-    lbtree* tree1 = Table_LN_[level - 1];
-    lbtree* tree2 = Table_LN_[level];
-    int input_page_count = 20; //指的是kpage数量
-    int output_page_count = 0;
-    // 在B+Tree中选择一个子树出来， 记录下遍历的所有节点（最底层可以不用存）
-    std::vector<std::vector<void *>> pages1 = tree1->pickInput(input_page_count, &index_start_pos1, &tree1_start, &tree1_end);
-    // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
-    std::vector<std::vector<void *>> pages2 = tree2->getOverlapping(tree1_start, tree1_end, &index_start_pos2, &output_page_count, &tree2_start, &tree2_end);
-    BP_Iterator* it1 = new BP_Iterator(tree1, pages1[1], index_start_pos1, input_page_count);
-    BP_Iterator* it2 = new BP_Iterator(tree2, pages2[1], index_start_pos2, output_page_count);
-    std::vector<BP_Iterator*> its = {it1, it2};
-    BP_Merge_Iterator* input = new BP_Merge_Iterator(its, user_comparator());
+  //   int index_start_pos1 = 0;
+  //   int index_start_pos2 = 0;
+  //   key_type tree1_start;
+  //   key_type tree1_end;
+  //   key_type tree2_start;
+  //   key_type tree2_end;
+  //   lbtree* tree1 = Table_LN_[level - 1];
+  //   lbtree* tree2 = Table_LN_[level];
+  //   int input_page_count = 20; //指的是kpage数量
+  //   int output_page_count = 0;
+  //   // 在B+Tree中选择一个子树出来， 记录下遍历的所有节点（最底层可以不用存）
+  //   std::vector<std::vector<void *>> pages1 = tree1->pickInput(input_page_count, &index_start_pos1, &tree1_start, &tree1_end);
+  //   // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
+  //   std::vector<std::vector<void *>> pages2 = tree2->getOverlapping(tree1_start, tree1_end, &index_start_pos2, &output_page_count, &tree2_start, &tree2_end);
+  //   BP_Iterator* it1 = new BP_Iterator(pmAlloc_, tree1, pages1[1], index_start_pos1, input_page_count);
+  //   BP_Iterator* it2 = new BP_Iterator(pmAlloc_, tree2, pages2[1], index_start_pos2, output_page_count);
+  //   std::vector<BP_Iterator*> its = {it1, it2};
+  //   BP_Merge_Iterator* input = new BP_Merge_Iterator(its, user_comparator());
 
-    PMTableBuilder builder(pmAlloc_);
-    ParsedInternalKey ikey;
-    std::string current_user_key;
-    bool has_current_user_key = false;
-    SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
-    while(input->Valid() && !shutting_down_.load(std::memory_order_acquire)){
-      Slice key = input->key();
-      bool drop = false;
+  //   PMTableBuilder builder(pmAlloc_);
+  //   ParsedInternalKey ikey;
+  //   std::string current_user_key;
+  //   bool has_current_user_key = false;
+  //   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  //   while(input->Valid() && !shutting_down_.load(std::memory_order_acquire)){
+  //     Slice key = input->key();
+  //     bool drop = false;
 
-      if (!ParseInternalKey(key, &ikey)) {
-        // Do not hide error keys
-        current_user_key.clear();
-        has_current_user_key = false;
-        last_sequence_for_key = kMaxSequenceNumber;
-      } else {
-        if (!has_current_user_key ||
-            user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) !=
-                0) {
-          // First occurrence of this user key
-          current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
-          has_current_user_key = true;
-          last_sequence_for_key = kMaxSequenceNumber;
-        }else{
-          drop = true;
-        }
-        // if (last_sequence_for_key <= compact->smallest_snapshot) {
-        //   // Hidden by an newer entry for same user key
-        //   drop = true;  // (A)
-        // } 
-        last_sequence_for_key = ikey.sequence;
-      }
-      if(!drop){
-        //重写到新的kPage，用旧的索引
-        builder.add(key, input->finger(), input->pointer(), input->index());
-        if(isNeedGC()){
-          //重写到新的kPage，用新的索引
-          input->clrValue();
-          builder.add(key, input->value(), input->finger());
-        }
+  //     if (!ParseInternalKey(key, &ikey)) {
+  //       // Do not hide error keys
+  //       current_user_key.clear();
+  //       has_current_user_key = false;
+  //       last_sequence_for_key = kMaxSequenceNumber;
+  //     } else {
+  //       if (!has_current_user_key ||
+  //           user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) !=
+  //               0) {
+  //         // First occurrence of this user key
+  //         current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+  //         has_current_user_key = true;
+  //         last_sequence_for_key = kMaxSequenceNumber;
+  //       }else{
+  //         drop = true;
+  //       }
+  //       // if (last_sequence_for_key <= compact->smallest_snapshot) {
+  //       //   // Hidden by an newer entry for same user key
+  //       //   drop = true;  // (A)
+  //       // } 
+  //       last_sequence_for_key = ikey.sequence;
+  //     }
+  //     if(!drop){
+  //       //重写到新的kPage，用旧的索引
+  //       builder.add(key, input->finger(), input->pointer(), input->index());
+  //       if(isNeedGC()){
+  //         //重写到新的kPage，用新的索引
+  //         input->clrValue();
+  //         builder.add(key, input->value(), input->finger());
+  //       }
 
-      }else{
-        //修改vPage，bitmap置空
-        input->clrValue();
-      }
+  //     }else{
+  //       //修改vPage，bitmap置空
+  //       input->clrValue();
+  //     }
 
-    }
-    lbtree *tree = nullptr;
-    // 返回生成的kPage的地址,还有最大最小的key。（最好直接返回子树），同时让这颗子树提供服务
-    std::vector<std::vector<void*>> pages3 = builder.finish(tree);
+  //   }
+  //   lbtree *tree = nullptr;
+  //   // 返回生成的kPage的地址,还有最大最小的key。（最好直接返回子树），同时让这颗子树提供服务
+  //   std::vector<std::vector<void*>> pages3 = builder.finish(tree);
 
-    // delete指定范围的B-Tree的索引的和kPage，自底向上
-    tree1->rangeDelete(pages1, tree1_start, tree1_end);
+  //   // delete指定范围的B-Tree的索引的和kPage，自底向上
+  //   tree1->rangeDelete(pages1, tree1_start, tree1_end);
 
-    // replace指定范围的B-Tree的索引和kPage, 自底向上（不会死锁，锁用一个释放一个）
-    tree2->rangeReplace(pages2, pages3, tree2_start, tree2_end);
+  //   // replace指定范围的B-Tree的索引和kPage, 自底向上（不会死锁，锁用一个释放一个）
+  //   tree2->rangeReplace(pages2, pages3, tree2_start, tree2_end);
 
-    for(int i = 0; i < its.size(); i++){
-      delete its[i];
-    }
-    delete input;
+  //   for(int i = 0; i < its.size(); i++){
+  //     delete its[i];
+  //   }
+  //   delete input;
     
   }
   return Status::OK();
@@ -1504,7 +1526,7 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
 Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, std::string* value) {
   // 0. 从L0的Table中拷贝可以读取的tree
   mutex_l0_.lock();
-  std::vector<lbtree*> trees = Table_L0_;
+  std::vector<std::shared_ptr<lbtree>> trees = Table_L0_;
   mutex_l0_.unlock();
   int pos;
   char* value_addr;
@@ -1513,14 +1535,11 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
 
   // 1. 读取L0中的tree
   for (int i = 0; i < trees.size(); i++) {
-    if (trees[i]->reader_count.fetch_add(1, std::memory_order_relaxed) >= 0) {
-      value_addr = (char*)trees[i]->lookup(rawKey, &pos);
-      if (value_addr != nullptr) {
-        value_length = leveldb::DecodeFixed32(value_addr);
-        *value = std::string(value_addr + 4, value_length);
-        return Status::OK();
-      }
-
+    value_addr = (char*)trees[i]->lookup(rawKey, &pos);
+    if (value_addr != nullptr) {
+      value_length = leveldb::DecodeFixed32(value_addr);
+      *value = std::string(value_addr + 4, value_length);
+      return Status::OK();
     }
   }
 
@@ -1530,7 +1549,7 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
     if(Table_LN_.empty() || Table_LN_[0] == nullptr){
       return Status::NotFound("");
     }
-    lbtree* tree = Table_LN_[0];
+    std::shared_ptr<lbtree> tree = Table_LN_[0];
     value_addr = (char*)Table_LN_[0]->lookup(rawKey, &pos);
     if (value_addr != nullptr) {
       value_length = leveldb::DecodeFixed32(value_addr);

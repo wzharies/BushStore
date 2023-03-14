@@ -9,6 +9,7 @@
 #include <deque>
 #include <set>
 #include <string>
+#include <memory>
 
 #include "db/dbformat.h"
 #include "db/log_writer.h"
@@ -137,6 +138,7 @@ class DBImpl : public DB {
 
   int PickCompactionPM();
   
+  void checkAndSetGC();
   bool isNeedGC();
   Status CompactionPM(int level);
 
@@ -219,10 +221,10 @@ class DBImpl : public DB {
   CuckooFilter* cuckoo_filter_;
 
   PMMemAllocator * pmAlloc_;
-  std::vector<lbtree*> Table_L0_;
-  std::vector<lbtree*> Table_LN_;
-  std::vector<lbtree*> Table_LN_TEMP_;
-  std::vector<lbtree*> Table_Delete_;
+  bool needGC = false;
+  std::vector<std::shared_ptr<lbtree>> Table_L0_;
+  std::vector<std::shared_ptr<lbtree>> Table_LN_;
+  std::vector<std::shared_ptr<lbtree>> Table_LN_TEMP_;
   std::mutex mutex_l0_;
   std::mutex mutex_l1_;
 };

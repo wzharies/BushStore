@@ -64,7 +64,7 @@ static const char* FLAGS_benchmarks =
     "snappyuncomp,";
 
 // Number of key/values to place in database
-static int FLAGS_num = 2000000;
+static int FLAGS_num = 100 * 1024 * 1024;
 
 // Number of read operations to do.  If negative, do FLAGS_num reads.
 static int FLAGS_reads = -1;
@@ -73,7 +73,7 @@ static int FLAGS_reads = -1;
 static int FLAGS_threads = 1;
 
 // Size of each value
-static int FLAGS_value_size = 100;
+static int FLAGS_value_size = 1000;
 
 // Arrange to generate values that shrink to this fraction of
 // their original size after compression
@@ -182,6 +182,16 @@ class RandomGenerator {
       assert(len < data_.size());
     }
     pos_ += len;
+    return Slice(data_.data() + pos_ - len, len);
+  }
+
+  Slice GenerateWithKey(size_t len, const int& key) {
+    if (pos_ + len > data_.size()) {
+      pos_ = 0;
+      assert(len < data_.size());
+    }
+    pos_ += len;
+    EncodeFixed64(data_.data() + pos_ - len, key);
     return Slice(data_.data() + pos_ - len, len);
   }
 };
@@ -812,7 +822,8 @@ class Benchmark {
       for (int j = 0; j < entries_per_batch_; j++) {
         const int k = seq ? i + j : thread->rand.Uniform(FLAGS_num);
         key.Set(k);
-        batch.Put(key.slice(), gen.Generate(value_size_));
+        batch.Put(key.slice(), gen.GenerateWithKey(value_size_, k));
+        // batch.Put(key.slice(), gen.Generate(value_size_));
         bytes += value_size_ + key.slice().size();
         thread->stats.FinishedSingleOp();
       }
@@ -861,6 +872,9 @@ class Benchmark {
       key.Set(k);
       if (db_->Get(options, key.slice(), &value).ok()) {
         found++;
+        // uint64_t k_temp = DecodeFixed64(value.c_str());
+        // if(k == k_temp)
+        //   found++;
       }
       thread->stats.FinishedSingleOp();
     }
