@@ -22,6 +22,7 @@
 /* ---------------------------------------------------------------------- */
 
 #include "tree.h"
+#include "table/pm_mem_alloc.h"
 #include "util/coding.h"
 #include "leveldb/slice.h"
 #include "leveldb/iterator.h"
@@ -234,21 +235,35 @@ public:
     key_type rawK(size_t index){
         return DecodeDBBenchFixed64(keys + index * 16);
     }
-    leveldb::Slice k(size_t index){
+    leveldb::Slice k(size_t index) const {
         return leveldb::Slice(keys + index * 16, 16);
     }
     void setk(size_t index, leveldb::Slice key){
         // keys[index * 3] = key.size();
+        assert(key.size() == 16);
         memcpy(keys + index * 16, key.data(), 16);
     }
     bool isEqual(size_t index, const key_type& key){
         return key == DecodeDBBenchFixed64(keys + index * 16);
     }
     key_type minRawKey(){
+        assert(nums > 0);
         return rawK(0);
     }
     key_type maxRawKey(){
+        assert(nums > 0);
         return rawK(nums - 1);
+    }
+    void remove(int start, int end){
+        if(start >= end) return ;
+        for(int i = end; i < nums; i++){
+            finger[i - end + start] = finger[i];
+            pointer[i - end + start] = pointer[i];
+            index[i - end + start] = index[i];
+            setk(i - end + start, k(i));
+        }
+        //删除end - start个
+        nums = nums- (end - start);
     }
 };
 
@@ -338,10 +353,14 @@ class lbtree : public tree
 {
 public: // root and level
     treeMeta *tree_meta;
+    uint32_t fileNumber = 0;
+    std::vector<std::vector<void*>> needFreeNodePages;
+    std::vector<void*> needFreeKPages;
+    PMMemAllocator *alloc;
     // std::atomic<int> reader_count = 0;
 
 public:
-    lbtree(treeMeta *meta) : tree_meta(meta){};
+    lbtree(treeMeta *meta, PMMemAllocator *alloc) : tree_meta(meta), alloc(alloc){};
     lbtree(Pointer8B tree_root, int level){
         tree_meta = new treeMeta(tree_root, level);
     }
@@ -357,9 +376,23 @@ public:
 
     ~lbtree()
     {
-        if(tree_meta->addr != nullptr){
+        // 如果是L0的tree的bnode，可以直接全部释放
+        if (tree_meta->addr != nullptr) {
+            assert(needFreeNodePages.size() == 0);
             free(tree_meta->addr);
+        } else {
+            // 如果是L1是tree的bnode，需要一个个释放
+            for (int i = 1; i < needFreeNodePages.size(); i++) {
+                for (int j = 0; j < needFreeNodePages[i].size(); j++) {
+                  free(needFreeNodePages[i][j]);
+                }
+            }
         }
+        //如果是L0或者L1的kpage，需要一个个释放掉
+        for (auto& kpage : needFreeKPages) {
+            alloc->freePage((char*)kpage, key_t);
+        }
+
         delete tree_meta;
     }
 

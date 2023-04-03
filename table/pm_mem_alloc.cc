@@ -15,7 +15,7 @@ uint64_t base_addr;
 
 PMMemAllocator::PMMemAllocator(const Options& options) : options_(options), new_extent_id_(0) {
   std::string path =
-  options_.pm_path_ + "allocator" + ".edb";
+  options_.pm_path_ + "/allocator" + ".edb";
   /* create a pmem file and memory map it */
   if(options_.use_pm_){
     while(true){
@@ -56,6 +56,9 @@ PMMemAllocator::~PMMemAllocator(){
   }else{
     free(reinterpret_cast<void*>(base_addr));
   }
+  for(auto& page : pages){
+    delete page;
+  }
 }
 
 uint64_t PMMemAllocator::SuitablePageSize(uint64_t page_size) {
@@ -82,6 +85,7 @@ uint64_t PMMemAllocator::SuitablePageSize(uint64_t page_size) {
 }
 
 void* PMMemAllocator::mallocPage(PageType type) {
+  std::lock_guard<std::mutex> lock(mutex_);
   // char* page_addr;
   if (type == key_t) {
     for (auto extent : Kpage_) {

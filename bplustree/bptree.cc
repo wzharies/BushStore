@@ -57,7 +57,7 @@ std::tuple<key_type, key_type> reverseAndCheckNode(int level, bnode *p){
         for(int i = 1; i <= p->num(); i++){
             next = p->ch(i);
             auto [left, right] = reverseAndCheckNode(level - 1, next);
-            if(preleft != -1){
+            if(preright != -1){
                 assert(preright <= left);
             }
             minV = std::min(minV, left);
@@ -838,13 +838,20 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>>& pages, std::vector<st
         bnode* lastNode = (bnode*)new_pages[pages.size()].back();
         if(needOldRoot){
             bnode* oldRoot = (bnode*)pages.back().front();
-            firstNode->insert(1, oldRoot->k(1), (void*)oldRoot);
+            if(firstNode->k(1) > oldRoot->k(1)){
+                firstNode->insert(1, oldRoot->k(1), (void*)oldRoot);
+            }else if(lastNode->kEnd() < oldRoot->k(1)){
+                lastNode->insert(lastNode->num() + 1, oldRoot->k(1), (void*)oldRoot);;
+            }else{
+                assert(false);
+            }
         }
         if(newSplit.ch != 0){
+            assert(newSplit.k > lastNode->kEnd());
             lastNode->insert(lastNode->num() + 1, newSplit.k, newSplit.ch);
         }
         tree_meta->tree_root = new_pages.back().back();
-        tree_meta->root_level = new_pages.size();
+        tree_meta->root_level = new_pages.size() - 1;
     }
 }
 

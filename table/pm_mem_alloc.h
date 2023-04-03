@@ -4,7 +4,8 @@
 #include <string>
 #include <vector>
 #include <iostream>
-
+#include <mutex>
+#include <deque>
 #include "include/leveldb/options.h"
 #include "leveldb/slice.h"
 
@@ -74,20 +75,33 @@ public:
     // }
     bitmap_ = (Bitmap*)pmem_addr;
     bitmap_->nums_ = page_count_;
+    for(int i = 0; i < bitmap_->nums_; i++){
+      char* addr = page_start_addr_ + i * page_size_;
+      free_lists_.push_back(addr);
+    }
     assert(pmem_addr_ + bitmap_->nums_ / 8 + 8 < page_start_addr_);
   }
   char* getNewPage() {
-    bitmap_->getEmpty(last_empty_);
-    bitmap_->set(last_empty_);
-    used_count_++;
-    char* ret = page_start_addr_ + last_empty_ * page_size_;
-    last_empty_ = (last_empty_ + 1) % bitmap_->nums_;
+    // bitmap_->getEmpty(last_empty_);
+    // bitmap_->set(last_empty_);
+    // used_count_++;
+    // char* ret = page_start_addr_ + last_empty_ * page_size_;
+    // last_empty_ = (last_empty_ + 1) % bitmap_->nums_;
     // if(last_empty_ == 0){
     //   std::cout<< "allocator is reallocating." << std::endl;
     // }
     // if( (uint64_t)ret == (uint64_t)0x555589cfb800){
     //   std::cout<<"malloc"<<std::endl;
     // }
+
+    if(free_lists_.empty()){
+      return nullptr;
+    }
+    char* ret = free_lists_.front();
+    free_lists_.pop_front();
+    int index = (ret - page_start_addr_) / page_size_;
+    bitmap_->set(index);
+    used_count_++;
     return ret;
   }
   void freePage(char* page_addr) {
@@ -95,12 +109,13 @@ public:
     //   std::cout<<"free"<<std::endl;
     // }
     char* addr = page_addr;
+    free_lists_.push_back(addr);
     bitmap_->clr((addr - page_start_addr_) / page_size_);
     used_count_--;
     assert(used_count_ >= 0);
   }
   bool isFull() { return used_count_ == page_count_; }
-  ~PMExtent() {delete bitmap_;}
+  ~PMExtent() {}
 
   uint64_t page_count_;
   uint64_t used_count_;
@@ -110,6 +125,7 @@ public:
   size_t last_empty_;
   char* pmem_addr_;// extent起始地址
   char* page_start_addr_;// extent起始地址 + bitmap地址
+  std::deque<char*> free_lists_;
 };
 
 class PMMemAllocator {
@@ -149,6 +165,7 @@ class PMMemAllocator {
 
   size_t mapped_len_;
   int is_pmem_;
+  std::mutex mutex_;
 };
 
 }  // namespace leveldb

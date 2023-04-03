@@ -5,10 +5,10 @@
 #include "bplustree/bptree.h"
 #include "table/pm_mem_alloc.h"
 namespace leveldb{
-class BP_Iterator{
+class BP_Iterator : public Iterator{
 public:
     BP_Iterator();
-    BP_Iterator(PMMemAllocator *alloc, lbtree* tree1, std::vector<void*>& pages, int start_pos, int kpage_count) : alloc_(alloc), tree1_(tree1), pages_(pages), pos_index_(start_pos), kpage_count_(kpage_count){
+    BP_Iterator(PMMemAllocator *alloc, lbtree* tree1, std::vector<void*>& pages, int start_pos, int kpage_count, bool autoClearVpage = false) : alloc_(alloc), tree1_(tree1), pages_(pages), pos_index_(start_pos), kpage_count_(kpage_count), autoClearVpage(autoClearVpage){
         cur_index_page_ = 0;
         index_page_ = (bnode *)pages_[cur_index_page_];
         kpage_ = (kPage*)index_page_->ch(pos_index_);
@@ -17,28 +17,73 @@ public:
         kPages_.reserve(kpage_count);
         kPages_.push_back(kpage_);
     }
-    ~BP_Iterator(){
-        releaseKpage();
+
+    void setKeyStartAndEnd(Slice startk, Slice endk, const Comparator* comparator){
+        startKey = startk;
+        endKey = endk;
+        comparator_ = comparator;
+        needTrim = true;
+    }
+    ~BP_Iterator() override {
+        // releaseKpage();
     }
 
     void releaseKpage (){
         // std::cout<< "free kPage from : " << ((kPage*)kPages_.front())->minRawKey() <<" to :" << ((kPage*)kPages_.back())->maxRawKey() <<std::endl;
-        for(auto& kpage : kPages_){
-            alloc_->freePage((char*)kpage, key_t);
+        if(kPages_.size() == 1 && !skipKpage){
+            //可能性很小，懒得写了
+            ((kPage*)kPages_[0])->remove(start_pos_index_, pos_data_);
+            if(((kPage*)kPages_[0])->nums == 0){
+                alloc_->freePage((char*)kPages_[0], key_t);
+            }
+            return ;
+        }
+        if(kPages_.size() > 1){
+            if(skipKpage == 0){
+                ((kPage*)kPages_[0])->nums = start_pos_index_;
+                if(((kPage*)kPages_[0])->nums == 0){
+                    alloc_->freePage((char*)kPages_[0], key_t);
+                }
+            }else if(skipKpage == 1 && start_pos_index_ == 0){
+                // do nothing
+            }else{
+                std::cout<<"fault case"<<std::endl;
+                assert(false);
+            }
+        }
+        for(int i = 1; i < kPages_.size() - 1; i++){
+            alloc_->freePage((char*)kPages_[i], key_t);
+        }
+        if(kPages_.size() > 1){
+            ((kPage*)kPages_.back())->remove(0, pos_data_);
+            if(((kPage*)kPages_.back())->nums == 0){
+                alloc_->freePage((char*)kPages_.back(), key_t);
+            }
         }
     }
 
-    bool Valid(){
-        return valid_;
+    bool Valid() const override {
+        return valid_ && (!needTrim || endKey.empty() || comparator_->Compare(key(), endKey) < 0);
     }
 
-    void SeekToFirst(){};
+    void SeekToFirst() override {
+        if(needTrim){
+            while(Valid()){
+                if(startKey.empty() || comparator_->Compare(key(), startKey) > 0){
+                    break;
+                }
+                NextInternal();
+            }
+        }
+        start_pos_index_ = pos_data_;
+        skipKpage = kPages_.size() - 1;
+    };
 
-    void SeekToLast(){};
+    void SeekToLast() override {};
 
-    void Seek(key_type key){}
+    void Seek(const Slice& target) override {}
 
-    void Next(){
+    void NextInternal(){
         pos_data_++;
         //超过kpage索引范围
         if(pos_data_ == kpage_->nums){
@@ -65,11 +110,16 @@ public:
         }
     }
 
-    void Prev(){
-
+    void Next() override {
+        if(autoClearVpage){
+            clrValue();
+        }
+        NextInternal();
     }
 
-    Slice key(){
+    void Prev() override {}
+
+    Slice key() const override {
         return kpage_->k(pos_data_);
     }
 
@@ -77,15 +127,15 @@ public:
         return kpage_->finger[pos_data_];
     }
 
-    uint32_t pointer(){
+    uint32_t pointer() const {
         return kpage_->pointer[pos_data_];
     }
 
-    unsigned char index(){
+    unsigned char index() const {
         return kpage_->index[pos_data_];
     }
 
-    Slice value(){
+    Slice value() const override {
         //TODO 也许可以优化？
         vPage *addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
         return addr->v(index());
@@ -102,8 +152,11 @@ public:
         }
     }
 
-    Status status(){
+    Status status() const override {
         return Status::OK();
+    }
+    void movekPageTolbtree(){
+        tree1_->needFreeKPages = kPages_;
     }
 private:
     PMMemAllocator *alloc_;
@@ -118,6 +171,15 @@ private:
     int pos_index_; //bnode的索引
     int pos_data_;  //kpage内部的索引
     bool valid_ = false;
+    bool autoClearVpage = false;
+    // 闭区间，由于getOverlap的精度只有bnode级别，但是但是多出的kpage不能在迭代器中生效，需要头尾做裁剪。
+    bool needTrim = false;
+    const Comparator* comparator_;
+    Slice startKey;
+    Slice endKey;
+    int start_pos_index_ = -1;
+    int skipKpage = 0;
+    int end_pos_index_ = -1;
 };
 
 } // namespace leveldb

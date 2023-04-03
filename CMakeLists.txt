@@ -33,6 +33,19 @@ endif (WIN32)
 option(LEVELDB_BUILD_TESTS "Build LevelDB's unit tests" ON)
 option(LEVELDB_BUILD_BENCHMARKS "Build LevelDB's benchmarks" ON)
 option(LEVELDB_INSTALL "Install LevelDB's header and library" ON)
+set(USE_ASAN false)
+
+if (USE_ASAN)
+  # Enable ASan
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fsanitize=undefined")
+
+  # Disable frame pointer omission
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
+
+  # Enable use-after-scope check
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize-address-use-after-scope")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lasan")
+endif (USE_ASAN)
 
 include(CheckIncludeFile)
 check_include_file("unistd.h" HAVE_UNISTD_H)
@@ -302,9 +315,9 @@ endif(HAVE_CRC32C)
 if(HAVE_SNAPPY)
   target_link_libraries(leveldb snappy)
 endif(HAVE_SNAPPY)
-if(HAVE_TCMALLOC)
+if(HAVE_TCMALLOC AND (NOT USE_ASAN))
   target_link_libraries(leveldb tcmalloc)
-endif(HAVE_TCMALLOC)
+endif(HAVE_TCMALLOC AND (NOT USE_ASAN))
 target_link_libraries(leveldb pmem)
 
 # Needed by port_stdcxx.h

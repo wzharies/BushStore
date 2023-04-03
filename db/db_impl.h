@@ -105,6 +105,23 @@ class DBImpl : public DB {
     int64_t bytes_written;
   };
 
+  struct ReadStats {
+    int64_t readCount = 0;
+    int64_t readRight = 0;
+    int64_t readWrong = 0;
+    int64_t readNotFound = 0;
+    int64_t readExpire = 0;
+    std::string getStats(){
+      std::string s;
+      s = s + "count : " + std::to_string(readCount)
+            + "right : " + std::to_string(readRight)
+            + "wrong : " + std::to_string(readWrong)
+            + "notfound  : " + std::to_string(readNotFound)
+            + "expire : " + std::to_string(readExpire);
+      return s;
+    }
+  };
+
   Iterator* NewInternalIterator(const ReadOptions&,
                                 SequenceNumber* latest_snapshot,
                                 uint32_t* seed);
@@ -140,7 +157,8 @@ class DBImpl : public DB {
   
   void checkAndSetGC();
   bool isNeedGC();
-  Status CompactionPM(int level);
+  Status CompactionLevel0();
+  Status CompactionLevel1();
 
   Status MakeRoomForWrite(bool force /* compact even if there is room? */)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
@@ -222,11 +240,15 @@ class DBImpl : public DB {
 
   PMMemAllocator * pmAlloc_;
   bool needGC = false;
+  bool flushSSD = false;
+  int gcCount = 0;
   std::vector<std::shared_ptr<lbtree>> Table_L0_;
   std::vector<std::shared_ptr<lbtree>> Table_LN_;
   std::vector<std::shared_ptr<lbtree>> Table_LN_TEMP_;
   std::mutex mutex_l0_;
   std::mutex mutex_l1_;
+public:
+  ReadStats readStats_;
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

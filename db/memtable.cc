@@ -81,6 +81,7 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   //  value_size   : varint32 of value.size()
   //  value bytes  : char[value.size()]
   size_t key_size = key.size();
+  assert(key_size == 8);
   size_t val_size = value.size();
   size_t internal_key_size = key_size + 8;
   const size_t encoded_len = VarintLength(internal_key_size) +

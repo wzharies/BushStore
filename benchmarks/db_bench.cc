@@ -21,6 +21,7 @@
 #include "util/random.h"
 #include "util/testutil.h"
 #include "util/coding.h"
+#include "db/db_impl.h"
 
 // Comma-separated list of operations to run in the specified order
 //   Actual benchmarks:
@@ -64,7 +65,7 @@ static const char* FLAGS_benchmarks =
     "snappyuncomp,";
 
 // Number of key/values to place in database
-static int FLAGS_num = 100 * 1024 * 1024;
+static int FLAGS_num = 10 * 1024 * 1024;
 
 // Number of read operations to do.  If negative, do FLAGS_num reads.
 static int FLAGS_reads = -1;
@@ -121,6 +122,14 @@ static bool FLAGS_reuse_logs = false;
 
 // Use the db with the following name.
 static const char* FLAGS_db = nullptr;
+
+static char* PM_PATH = nullptr;
+static size_t VALUE_SIZE = 1000;
+static uint64_t PM_SIZE = 2ULL * 1024 * 1024 * 1024;
+static uint64_t EXTENT_SIZE = 128 * 1024 * 1024;
+static bool USE_PM = true;
+static bool FLUSH_SSD=false;
+static uint64_t BUCKET_NUMS = 4 * 1024 * 1024;
 
 namespace leveldb {
 
@@ -372,8 +381,8 @@ struct ThreadState {
   Random rand;  // Has different seeds for different threads
   Stats stats;
   SharedState* shared;
-
-  ThreadState(int index, int seed) : tid(index), rand(seed), shared(nullptr) {}
+  ThreadState(int index) : tid(index), rand(1000 + index), shared(nullptr) {}
+  // ThreadState(int index, int seed) : tid(index), rand(seed), shared(nullptr) {}
 };
 
 }  // namespace
@@ -561,6 +570,8 @@ class Benchmark {
         method = &Benchmark::WriteRandom;
       } else if (name == Slice("readseq")) {
         method = &Benchmark::ReadSequential;
+      } else if (name == Slice("readseq2")) {
+        method = &Benchmark::ReadSeq;
       } else if (name == Slice("readreverse")) {
         method = &Benchmark::ReadReverse;
       } else if (name == Slice("readrandom")) {
@@ -672,7 +683,8 @@ class Benchmark {
       // Seed the thread's random state deterministically based upon thread
       // creation across all benchmarks. This ensures that the seeds are unique
       // but reproducible when rerunning the same set of benchmarks.
-      arg[i].thread = new ThreadState(i, /*seed=*/1000 + total_thread_count_);
+      arg[i].thread = new ThreadState(i);
+      // arg[i].thread = new ThreadState(i, /*seed=*/1000 + total_thread_count_);
       arg[i].thread->shared = &shared;
       g_env->StartThread(ThreadBody, &arg[i]);
     }
@@ -786,6 +798,13 @@ class Benchmark {
     options.max_open_files = FLAGS_open_files;
     options.filter_policy = filter_policy_;
     options.reuse_logs = FLAGS_reuse_logs;
+
+    options.bucket_nums = BUCKET_NUMS;
+    options.pm_path_ = PM_PATH;
+    options.value_size_ = VALUE_SIZE;
+    options.use_pm_ = USE_PM;
+    options.pm_size_ = PM_SIZE;
+    options.extent_size_ = EXTENT_SIZE;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       std::fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -820,7 +839,8 @@ class Benchmark {
     for (int i = 0; i < num_; i += entries_per_batch_) {
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
-        const int k = seq ? i + j : thread->rand.Uniform(FLAGS_num);
+        const int k = seq ? i + j : (thread->rand.Next() % FLAGS_num);
+        // const int k = seq ? i + j : thread->rand.Uniform(FLAGS_num);
         key.Set(k);
         batch.Put(key.slice(), gen.GenerateWithKey(value_size_, k));
         // batch.Put(key.slice(), gen.Generate(value_size_));
@@ -861,14 +881,14 @@ class Benchmark {
     delete iter;
     thread->stats.AddBytes(bytes);
   }
-
-  void ReadRandom(ThreadState* thread) {
+  void ReadSeq(ThreadState* thread) {
     ReadOptions options;
     std::string value;
     int found = 0;
     KeyBuffer key;
     for (int i = 0; i < reads_; i++) {
-      const int k = thread->rand.Uniform(FLAGS_num);
+      const int k = i;
+      // const int k = thread->rand.Uniform(FLAGS_num);
       key.Set(k);
       if (db_->Get(options, key.slice(), &value).ok()) {
         found++;
@@ -878,6 +898,30 @@ class Benchmark {
       }
       thread->stats.FinishedSingleOp();
     }
+    std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
+    char msg[100];
+    std::snprintf(msg, sizeof(msg), "(%d of %d found)", found, num_);
+    thread->stats.AddMessage(msg);
+  }
+
+  void ReadRandom(ThreadState* thread) {
+    ReadOptions options;
+    std::string value;
+    int found = 0;
+    KeyBuffer key;
+    for (int i = 0; i < reads_; i++) {
+      const int k = (thread->rand.Next() % FLAGS_num);
+      // const int k = thread->rand.Uniform(FLAGS_num);
+      key.Set(k);
+      if (db_->Get(options, key.slice(), &value).ok()) {
+        found++;
+        // uint64_t k_temp = DecodeFixed64(value.c_str());
+        // if(k == k_temp)
+        //   found++;
+      }
+      thread->stats.FinishedSingleOp();
+    }
+    std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
     char msg[100];
     std::snprintf(msg, sizeof(msg), "(%d of %d found)", found, num_);
     thread->stats.AddMessage(msg);
@@ -1047,6 +1091,8 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; i++) {
     double d;
     int n;
+    size_t length;
+    uint64_t space;
     char junk;
     if (leveldb::Slice(argv[i]).starts_with("--benchmarks=")) {
       FLAGS_benchmarks = argv[i] + strlen("--benchmarks=");
@@ -1086,6 +1132,22 @@ int main(int argc, char** argv) {
       FLAGS_bloom_bits = n;
     } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {
       FLAGS_open_files = n;
+
+    // used in pm
+    } else if (strncmp(argv[i], "--pm_path=", 10) == 0) {
+      PM_PATH = argv[i] + 10;
+    } else if (sscanf(argv[i], "--value_size=%zd%c", &length, &junk) == 1) {
+      VALUE_SIZE = length;
+    } else if (sscanf(argv[i], "--pm_size=%lu%c", &space, &junk) == 1) {
+      PM_SIZE = space;
+    } else if (sscanf(argv[i], "--bucket_nums=%lu%c", &space, &junk) == 1) {
+      BUCKET_NUMS = space;
+    } else if (sscanf(argv[i], "--use_pm=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      USE_PM = n;
+    } else if (sscanf(argv[i], "--flush_ssd=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLUSH_SSD = n;
     } else if (strncmp(argv[i], "--db=", 5) == 0) {
       FLAGS_db = argv[i] + 5;
     } else {

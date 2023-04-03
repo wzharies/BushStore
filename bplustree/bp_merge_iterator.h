@@ -20,7 +20,7 @@ public:
 
     void SeekToLast(){};
 
-    void Seek(key_type key){}
+    void Seek(){}
 
     void Next(){
         current_->Next();

@@ -1321,10 +1321,64 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   return result;
 }
 
+Iterator* VersionSet::getTwoLevelIterator(std::vector<FileMetaData*>& files){
+  ReadOptions options;
+  options.verify_checksums = options_->paranoid_checks;
+  options.fill_cache = false;
+  return NewTwoLevelIterator(
+            new Version::LevelFileNumIterator(icmp_, &files),
+            &GetFileIterator, table_cache_, options);
+}
+
 Compaction* VersionSet::PickCompaction() {
   Compaction* c;
-  int level;
+  int level = 1;
+  int next_level = 2;
+  int max_files = 5;
+  // 根据 compact_pointer找到满足条件的files
 
+  if(options_->has_pm){
+    c = new Compaction(options_, level);
+    if(current_->files_[next_level].size() == 0){
+      return c;
+    }
+    size_t i;
+    auto getInputs =  [&](){
+      for (i = 0; i < current_->files_[next_level].size() && c->inputs_[1].size() < max_files; i++) {
+        FileMetaData* f = current_->files_[next_level][i];
+        if (compact_pointer_[next_level].empty() ||
+            icmp_.Compare(f->largest.Encode(), compact_pointer_[next_level]) > 0) {
+          c->inputs_[1].push_back(f);
+        }
+      }
+    };
+    getInputs();
+    if(c->inputs_[1].size() == 0){
+      compact_pointer_[next_level].clear();
+      getInputs();
+    }
+    assert(c->inputs_[1].size() != 0);
+    c->input_version_ = current_;
+    c->input_version_->Ref();
+    int last_index = i - c->inputs_[1].size() - 1;
+    int next_index = i;
+    if(last_index >= 0){
+      assert(current_->files_[next_level].size() > last_index);
+      c->smallest = current_->files_[next_level][last_index]->largest.Encode();
+    }
+    if(next_index < current_->files_[next_level].size()){
+      assert(next_index >= 0);
+      c->largest = current_->files_[next_level][next_index]->smallest.Encode();
+    }
+    if(i == current_->files_[next_level].size()){
+      compact_pointer_[next_level] = {};
+      c->edit_.SetCompactPointer(next_level, c->inputs_[1].back()->largest);
+    }else{
+      compact_pointer_[next_level] = c->inputs_[1].back()->largest.Encode().ToString();
+      c->edit_.SetCompactPointer(next_level, c->inputs_[1].back()->largest);
+    }
+    return c;
+  }
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
   const bool size_compaction = (current_->compaction_score_ >= 1);

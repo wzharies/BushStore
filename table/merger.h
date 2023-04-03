@@ -17,6 +17,17 @@ class Iterator;
 
 class MergingIterator : public Iterator {
  public:
+   MergingIterator(const Comparator* comparator, Iterator** children, int n)
+      : comparator_(comparator),
+        children_(new IteratorWrapper[n]),
+        n_(n),
+        current_(nullptr),
+        direction_(kForward)
+  {
+    for (int i = 0; i < n; i++) {
+      children_[i].Set(children[i]);
+    }
+  }
   MergingIterator(const Comparator* comparator, Iterator** children, int n, uint64_t* levels)
       : comparator_(comparator),
         children_(new IteratorWrapper[n]),
@@ -153,7 +164,7 @@ class MergingIterator : public Iterator {
   int n_;
   IteratorWrapper* current_;
   Direction direction_;
-  uint64_t* levels;
+  uint64_t* levels = nullptr;
   uint64_t cur_file_num_;
 };
 
@@ -167,7 +178,8 @@ class MergingIterator : public Iterator {
 // REQUIRES: n >= 0
 Iterator* NewMergingIterator(const Comparator* comparator, Iterator** children,
                              int n, uint64_t* levels);
-
+Iterator* NewMergingIterator(const Comparator* comparator, Iterator** children,
+                             int n);
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_TABLE_MERGER_H_

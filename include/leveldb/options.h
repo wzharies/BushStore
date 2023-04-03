@@ -80,7 +80,7 @@ struct LEVELDB_EXPORT Options {
   // so you may wish to adjust this parameter to control memory usage.
   // Also, a larger write buffer will result in a longer recovery time
   // the next time the database is opened.
-  size_t write_buffer_size = 1024 * 1024 * 1024;
+  size_t write_buffer_size = 2 * 1024 * 1024;
 
   // Number of open files that can be used by the DB.  You may need to
   // increase this if your database has a large working set (budget
@@ -142,14 +142,17 @@ struct LEVELDB_EXPORT Options {
   // NewBloomFilterPolicy() here.
   const FilterPolicy* filter_policy = nullptr;
 
-  int bucket_nums = 0x1000000;
+  // int bucket_nums = 0x1000000;
+  //没有pm的情况，大概有所有key count的十分之一，以防万一，乘以2倍看看
+  int bucket_nums = 4 * 1024 * 1024;
 
   std::string pm_path_ = "/mnt/pmem0.1/pm_test/";
   size_t key_size_ = 8;
   size_t value_size_ = 1000;
-  uint64_t pm_size_ = 200ULL * 1024 * 1024 * 1024;
+  uint64_t pm_size_ = 2ULL * 1024 * 1024 * 1024;
   uint64_t extent_size_ = 128 * 1024 * 1024;
-  bool use_pm_ = false;
+  bool use_pm_ = false; // use PM or use DRAM as PM
+  bool has_pm = true; // if it's false. then it's leveldb
 };
 
 // inline void* getRelativeAddr(void* addr){

@@ -251,7 +251,7 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(std::shared_ptr<lbtree> 
     assert(kPage_count_ == pages[0].size());
     treeMeta* tree_meta = new treeMeta(Pointer8B(leftPages[max_level_]), max_level_, min_key_, max_key_, pages[1], node_mem_, kPage_count_);
     tree_meta->cur_size = used_pm_;
-    tree = std::make_shared<lbtree>(tree_meta);
+    tree = std::make_shared<lbtree>(tree_meta, pm_alloc_);
     assert(pages[max_level_ + 1].size() == 0);
     pages.resize(max_level_ + 1);
     assert(pages.back().size() == 1);

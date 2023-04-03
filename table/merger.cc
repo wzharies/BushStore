@@ -39,7 +39,18 @@ void MergingIterator::FindLargest() {
   }
   current_ = largest;
 }
-// }  // namespace
+
+Iterator* NewMergingIterator(const Comparator* comparator, Iterator** children,
+                             int n) {
+  assert(n >= 0);
+  if (n == 0) {
+    return NewEmptyIterator();
+  // } else if (n == 1) {
+  //   return children[0];
+  } else {
+    return new MergingIterator(comparator, children, n);
+  }
+}
 
 Iterator* NewMergingIterator(const Comparator* comparator, Iterator** children,
                              int n, uint64_t* levels) {
