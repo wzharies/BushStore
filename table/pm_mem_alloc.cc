@@ -80,8 +80,50 @@ uint64_t PMMemAllocator::SuitablePageSize(uint64_t page_size) {
     return 64 * 1024;
   } else if (page_size < 128 * 1024) {
     return 128 * 1024;
+  } else if (page_size < 256 * 1024) {
+    return 256 * 1024;
   }
+  std::cout<< "error : big value size" << std::endl;
   return -1;
+}
+
+std::vector<void*> PMMemAllocator::mallocPage(PageType type, uint64_t count){
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<void*> res;
+  res.reserve(count);
+  if (type == key_t) {
+    for (auto extent : Kpage_) {
+      if (!extent->isFull()) {
+        std::vector<void*> ret = extent->getNewPage(count);
+        res.insert(res.end(), ret.begin(), ret.end());
+        count -= ret.size();
+        if(count == 0){
+          return res;
+        }
+      }
+    }
+  } else {
+    for (auto extent : Vpage_) {
+      if (!extent->isFull()) {
+        std::vector<void*> ret = extent->getNewPage(count);
+        res.insert(res.end(), ret.begin(), ret.end());
+        count -= ret.size();
+        if(count == 0){
+          return res;
+        }
+      }
+    }
+  }
+  while(count > 0){
+    auto extent = NewExtent(type);
+    std::vector<void*> ret = extent->getNewPage(count);
+    res.insert(res.end(), ret.begin(), ret.end());
+    count -= ret.size();
+    if(count == 0){
+      return res;
+    }
+  }
+  return res;
 }
 
 void* PMMemAllocator::mallocPage(PageType type) {

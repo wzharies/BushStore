@@ -110,6 +110,9 @@ class DBImpl : public DB {
     int64_t readRight = 0;
     int64_t readWrong = 0;
     int64_t readNotFound = 0;
+    int64_t readL0Found = 0;
+    int64_t readL1Found = 0;
+    int64_t readL2Found = 0;
     int64_t readExpire = 0;
     std::string getStats(){
       std::string s;
@@ -152,13 +155,14 @@ class DBImpl : public DB {
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   
   Status WriteLevel0TableToPM(MemTable* mem); EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-
+  void MergeL1();
   int PickCompactionPM();
   
   void checkAndSetGC();
   bool isNeedGC();
   Status CompactionLevel0();
   Status CompactionLevel1();
+  Status CompactionLevel1Concurrency();
 
   Status MakeRoomForWrite(bool force /* compact even if there is room? */)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
@@ -247,6 +251,9 @@ class DBImpl : public DB {
   std::vector<std::shared_ptr<lbtree>> Table_LN_TEMP_;
   std::mutex mutex_l0_;
   std::mutex mutex_l1_;
+  std::condition_variable conVar_;
+  std::mutex mergeMutex_;
+  std::thread compactionThread_;
 public:
   ReadStats readStats_;
 };

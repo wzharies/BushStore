@@ -65,7 +65,7 @@ static const char* FLAGS_benchmarks =
     "snappyuncomp,";
 
 // Number of key/values to place in database
-static int FLAGS_num = 10 * 1024 * 1024;
+static int FLAGS_num = 20 * 1024 * 1024;
 
 // Number of read operations to do.  If negative, do FLAGS_num reads.
 static int FLAGS_reads = -1;
@@ -74,7 +74,7 @@ static int FLAGS_reads = -1;
 static int FLAGS_threads = 1;
 
 // Size of each value
-static int FLAGS_value_size = 1000;
+static int FLAGS_value_size = 4096;
 
 // Arrange to generate values that shrink to this fraction of
 // their original size after compression
@@ -107,7 +107,7 @@ static int FLAGS_open_files = 0;
 
 // Bloom filter bits per key.
 // Negative means use default settings.
-static int FLAGS_bloom_bits = -1;
+static int FLAGS_bloom_bits = 16;
 
 // Common key prefix length.
 static int FLAGS_key_prefix = 0;
@@ -124,12 +124,12 @@ static bool FLAGS_reuse_logs = false;
 static const char* FLAGS_db = nullptr;
 
 static char* PM_PATH = nullptr;
-static size_t VALUE_SIZE = 1000;
-static uint64_t PM_SIZE = 2ULL * 1024 * 1024 * 1024;
+// static size_t VALUE_SIZE = 4096;
+static uint64_t PM_SIZE = 8ULL * 1024 * 1024 * 1024;
 static uint64_t EXTENT_SIZE = 128 * 1024 * 1024;
 static bool USE_PM = true;
-static bool FLUSH_SSD=false;
-static uint64_t BUCKET_NUMS = 4 * 1024 * 1024;
+static bool FLUSH_SSD=true;
+static uint64_t BUCKET_NUMS = 8 * 1024 * 1024;
 
 namespace leveldb {
 
@@ -800,11 +800,15 @@ class Benchmark {
     options.reuse_logs = FLAGS_reuse_logs;
 
     options.bucket_nums = BUCKET_NUMS;
-    options.pm_path_ = PM_PATH;
-    options.value_size_ = VALUE_SIZE;
+    if(PM_PATH != nullptr){
+      options.pm_path_ = PM_PATH;
+    }
+    options.value_size_ = FLAGS_value_size;
     options.use_pm_ = USE_PM;
     options.pm_size_ = PM_SIZE;
     options.extent_size_ = EXTENT_SIZE;
+    options.flush_ssd = FLUSH_SSD;
+    std::cout<<FLAGS_db<<std::endl;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       std::fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -908,6 +912,7 @@ class Benchmark {
     ReadOptions options;
     std::string value;
     int found = 0;
+    int wrong = 0;
     KeyBuffer key;
     for (int i = 0; i < reads_; i++) {
       const int k = (thread->rand.Next() % FLAGS_num);
@@ -918,12 +923,14 @@ class Benchmark {
         // uint64_t k_temp = DecodeFixed64(value.c_str());
         // if(k == k_temp)
         //   found++;
+        // else
+        //   wrong++;
       }
       thread->stats.FinishedSingleOp();
     }
     std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
     char msg[100];
-    std::snprintf(msg, sizeof(msg), "(%d of %d found)", found, num_);
+    std::snprintf(msg, sizeof(msg), "(%d of %d found), %d wrong", found, num_, wrong);
     thread->stats.AddMessage(msg);
   }
 
@@ -1136,8 +1143,8 @@ int main(int argc, char** argv) {
     // used in pm
     } else if (strncmp(argv[i], "--pm_path=", 10) == 0) {
       PM_PATH = argv[i] + 10;
-    } else if (sscanf(argv[i], "--value_size=%zd%c", &length, &junk) == 1) {
-      VALUE_SIZE = length;
+    // } else if (sscanf(argv[i], "--value_size=%zd%c", &length, &junk) == 1) {
+    //   VALUE_SIZE = length;
     } else if (sscanf(argv[i], "--pm_size=%lu%c", &space, &junk) == 1) {
       PM_SIZE = space;
     } else if (sscanf(argv[i], "--bucket_nums=%lu%c", &space, &junk) == 1) {

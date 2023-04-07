@@ -464,6 +464,7 @@ public:
     void buildTree(leveldb::Iterator* iter);
     std::vector<std::vector<void *>> pickInput(int page_count, int* index_start_pos, key_type* start, key_type* end);
     std::vector<std::vector<void *>> getOverlapping(key_type start, key_type end, int* index_start_pos, int* page_count, key_type* ret_start, key_type* ret_end);
+    std::vector<std::vector<void *>> getOverlappingMulTask(std::vector<key_type> starts, key_type* begin, key_type* end, std::vector<int>& page_indexs, std::vector<int>& entry_indexs, std::vector<int>& page_counts, std::vector<int>& sst_index, key_type& ret_start, key_type& ret_end, key_type& new_begin);
     void rangeDelete(std::vector<std::vector<void*>>& pages, key_type start, key_type end);
     void rangeReplace(std::vector<std::vector<void*>>& pages, std::vector<std::vector<void*>>& new_pages, key_type start, key_type end);
 

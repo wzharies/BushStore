@@ -81,6 +81,18 @@ public:
     }
     assert(pmem_addr_ + bitmap_->nums_ / 8 + 8 < page_start_addr_);
   }
+  std::vector<void*> getNewPage(uint64_t kvCount){
+    std::vector<void*> res;
+    while(kvCount-- && !free_lists_.empty()){
+      char* ret = free_lists_.front();
+      free_lists_.pop_front();
+      int index = (ret - page_start_addr_) / page_size_;
+      bitmap_->set(index);
+      used_count_++;
+      res.push_back(ret);
+    }
+    return res;
+  }
   char* getNewPage() {
     // bitmap_->getEmpty(last_empty_);
     // bitmap_->set(last_empty_);
@@ -134,11 +146,13 @@ class PMMemAllocator {
   ~PMMemAllocator();
   const void* PmAlloc(size_t pm_len);
   void* mallocPage(PageType type);
+  std::vector<void*> mallocPage(PageType type, uint64_t count);
   void freePage(char* addr, PageType type);
   uint64_t GetKpageSize() { return kPage_size_; }
   uint64_t GetVpageSize() { return vPage_size_; }
   void Sync();
   double getMemoryUsabe(){
+    std::lock_guard<std::mutex> lock(mutex_);
     uint64_t total = 0;
     uint64_t used = 0;
     for(int i = 0; i < pages.size();i++){

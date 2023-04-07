@@ -133,12 +133,16 @@ inline const char* GetVarint32Ptr(const char* p, const char* limit,
 
 inline uint64_t DecodeDBBenchFixed64(const char* ptr) {
   const uint8_t* const buffer = reinterpret_cast<const uint8_t*>(ptr);
-  uint64_t result = 0;
-  for(int i = 0; i < 8; i++){
-    //assert(buffer[i] >= '0' && buffer[i] <= '9');
-    result |= (((uint64_t)buffer[i]) << ((7 - i) * 8));
-  }
-  return result;
+
+  // Recent clang and gcc optimize this to a single mov / ldr instruction.
+  return (static_cast<uint64_t>(buffer[7])) |
+         (static_cast<uint64_t>(buffer[6]) << 8) |
+         (static_cast<uint64_t>(buffer[5]) << 16) |
+         (static_cast<uint64_t>(buffer[4]) << 24) |
+         (static_cast<uint64_t>(buffer[3]) << 32) |
+         (static_cast<uint64_t>(buffer[2]) << 40) |
+         (static_cast<uint64_t>(buffer[1]) << 48) |
+         (static_cast<uint64_t>(buffer[0]) << 56);
 }
 
 }  // namespace leveldb

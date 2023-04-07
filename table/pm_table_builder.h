@@ -20,7 +20,7 @@ static inline unsigned char hashcode1B(key_type x)
 
 class PMTableBuilder{
 public:
-    PMTableBuilder(PMMemAllocator* pm_alloc, char * node_mem = nullptr);
+    PMTableBuilder(PMMemAllocator* pm_alloc, char * node_mem = nullptr, uint64_t kvNums = 0);
     ~PMTableBuilder();
     void add(const Slice& key, unsigned char finger, uint32_t pointer, unsigned char index);
     void add(const Slice& key, const Slice& value, unsigned char finger);
@@ -28,6 +28,7 @@ public:
     void setMaxKey(const Slice& key);
     void setMinKey(const Slice& key);
     std::vector<std::vector<void *>> finish(std::shared_ptr<lbtree> &tree);
+    void initPreMalloc(uint64_t kvNums);
 
     // uint64_t GetFileSize(){
     //     return offset_;
@@ -39,9 +40,13 @@ private:
     void flush_kpage();
     void flush_vpage();
     void* mallocBnode();
+    void* mallocKpage();
+    void* mallocVpage();
 
     PMMemAllocator* pm_alloc_;
     char* node_mem_;
+    std::vector<void*> mallocKpages_;
+    std::vector<void*> mallocVpages_;
     // char* key_raw_; //pm
     // char* value_raw_; //pm
     //std::vector<void *> kPages;

@@ -42,8 +42,10 @@ private:
     struct cuckoo_slot **buckets_;
     struct cuckoo_slot *slots_;
     uint32_t bucket_num_;
-    std::random_device rd_;
-
+    std::mt19937 rng2;
+    std::uniform_int_distribution<std::mt19937_64::result_type> dist2;
+    std::mt19937 rng4;
+    std::uniform_int_distribution<std::mt19937_64::result_type> dist4;
 public:
     std::atomic<uint32_t> minFileNumber = 1; // compaction的时候会增加
 };

@@ -33,18 +33,45 @@ namespace leveldb {
 //     }
 //     return hash;
 // }
-#define max_size 64 * 1024
+#define max_size 256 * 1024
 
 void* PMTableBuilder::mallocBnode(){
     if(node_mem_ != nullptr){
         cur_node_index_++;
         return (void *)(node_mem_ + (cur_node_index_ - 1) * 256);
     }else{
-        return (bnode*)calloc(1, 256);
+        return calloc(1, 256);
     }
 }
 
-PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc, char* node_mem)\
+void* PMTableBuilder::mallocKpage(){
+    if(node_mem_ != nullptr){
+        void* ret = mallocKpages_.back();
+        mallocKpages_.pop_back();
+        return ret;
+    }else{
+        return pm_alloc_->mallocPage(key_t);
+    }
+}
+
+void* PMTableBuilder::mallocVpage(){
+    if(node_mem_ != nullptr){
+        void* ret = mallocVpages_.back();
+        mallocVpages_.pop_back();
+        return ret;
+    }else{
+        return pm_alloc_->mallocPage(value_t);
+    }
+}
+
+void PMTableBuilder::initPreMalloc(uint64_t kvNums){
+    int kPageCount = (kvNums + LEAF_KEY_NUM - 1) / LEAF_KEY_NUM;
+    int vPageCount = (kvNums + LEAF_VALUE_NUM - 1) / LEAF_VALUE_NUM;
+    mallocKpages_ = pm_alloc_->mallocPage(key_t, kPageCount);
+    mallocVpages_ = pm_alloc_->mallocPage(value_t, vPageCount);
+}
+
+PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc, char* node_mem, uint64_t kvNums)\
      : pm_alloc_(pm_alloc), node_mem_(node_mem), cur_node_index_(0), used_pm_(0), kPage_count_(0){
     key_buf_ = (kPage*)calloc(1, max_size);
     value_buf_ = (vPage*)calloc(1, max_size);
@@ -52,19 +79,32 @@ PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc, char* node_mem)\
     value_offset_ = 256;
     pages.resize(32);
     leftPages.resize(32);
-    value_page_ = (vPage*)pm_alloc_->mallocPage(value_t);
+    initPreMalloc(kvNums);
+    value_page_ = (vPage*)mallocVpage();
     used_pm_ += pm_alloc_->vPage_size_;
 }
 
 PMTableBuilder::~PMTableBuilder(){
     free(key_buf_);
     free(value_buf_);
+    if(!mallocKpages_.empty()){
+        std::cout<<"k: "<<mallocKpages_.size()<<std::endl;
+        for(auto& page : mallocKpages_){
+            pm_alloc_->freePage((char*)page, key_t);
+        }
+    }
+    if(!mallocVpages_.empty()){
+        std::cout<<"v: "<<mallocVpages_.size()<<std::endl;
+        for(auto& page : mallocVpages_){
+            pm_alloc_->freePage((char*)page, value_t);
+        }
+    }
     //TODO value_page_如果为空是否需要delete(应该已经解决)
 }
 
 void PMTableBuilder::flush_kpage(){
     // kPage* page = pm_alloc_->palloc(key_offset_);
-    kPage* page = (kPage*)pm_alloc_->mallocPage(key_t);
+    kPage* page = (kPage*)mallocKpage();
     used_pm_ += pm_alloc_->kPage_size_;
     pages[0].push_back(page);
     if(pm_alloc_->options_.use_pm_){
@@ -155,7 +195,7 @@ void PMTableBuilder::add(const Slice& key, const Slice& value, unsigned char fin
         value_buf_->total_num = value_buf_->alloc_num;
         value_buf_->bitmap = (1ULL << value_buf_->alloc_num) - 1;
         flush_vpage();
-        value_page_ = (vPage*)pm_alloc_->mallocPage(value_t);
+        value_page_ = (vPage*)mallocVpage();;
         used_pm_ += pm_alloc_->vPage_size_;
     }
 }
@@ -186,7 +226,7 @@ void PMTableBuilder::add(const Slice& key, const Slice& value){
         value_buf_->total_num = value_buf_->alloc_num;
         value_buf_->bitmap = (1ULL << value_buf_->alloc_num) - 1;
         flush_vpage();
-        value_page_ = (vPage*)pm_alloc_->mallocPage(value_t);
+        value_page_ = (vPage*)mallocVpage();;
         used_pm_ += pm_alloc_->vPage_size_;
     }
 }
@@ -197,7 +237,7 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(std::shared_ptr<lbtree> 
     Pointer8B lastAddr = Pointer8B(0);
     if(key_buf_->nums != 0){
         key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
-        kPage* page = (kPage*)pm_alloc_->mallocPage(key_t);
+        kPage* page = (kPage*)mallocKpage();;
         used_pm_ += pm_alloc_->kPage_size_;
         pages[0].push_back(page);
         if(pm_alloc_->options_.use_pm_){
