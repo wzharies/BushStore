@@ -20,6 +20,7 @@
 #include "bptree.h"
 #include "include/leveldb/options.h"
 #include "table/pm_mem_alloc.h"
+#include "util/global.h"
 namespace leveldb {
 
 void lbtree::buildTree(Iterator* iter){
@@ -230,6 +231,184 @@ std::vector<std::vector<void *>> lbtree::pickInput(int page_count, int* index_st
 
     return page_addr;
 }
+
+std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
+    key_type start_key, key_type end_key, int sst_count, key_type sst_start,
+    key_type sst_end, key_type& new_start_key, int sst_page_index,
+    int sst_page_end_index) {
+    // record the path from root to leaf
+    // parray[level] is a node on the path
+    // child ppos[level] of parray[level] == parray[level-1]
+    //
+    Pointer8B parray[32];  // 0 .. root_level will be used
+    short ppos[32];        // 1 .. root_level will be used
+    int pnum[32];          // 0 .. root_level will be used
+    key_type key = start_key;
+    volatile long long sum;
+    std::vector<std::vector<void*>> page_addr(tree_meta->root_level + 1);
+    // std::vector<std::vector<bnode *>> bnodes(tree_meta->root_level + 1);
+    /* Part 1. get the positions for the compaction key */
+    {
+        bnode* p;
+        // bleaf *lp;
+        int i, t, m, b;
+#ifdef VAR_KEY
+        int c;
+#endif
+
+    Again2:
+        // 1. RTM begin
+        // if (_xbegin() != _XBEGIN_STARTED)
+        // {
+        //     // random backoff
+        //     sum= 0;
+        //     for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+        //     goto Again2;
+        // }
+
+        // 2. search nonleaf nodes
+        p = tree_meta->tree_root;
+
+        for (i = tree_meta->root_level; i > 0; i--) {
+#ifdef PREFETCH
+            // prefetch the entire node
+            NODE_PREF(p);
+#endif
+            assert(p->lock() == 0 || p->lock() == 1);
+            // if the lock bit is set, abort
+            if (p->lock()) {
+                // _xabort(3);
+                goto Again2;
+            }
+
+            parray[i] = p;
+            // if(i > 1){
+            //     page_addr[i].push_back((void*)p);
+            // }
+            pnum[i] = p->num();
+
+            // binary search to narrow down to at most 8 entries
+            b = 1;
+            t = p->num();
+            while (b + 7 <= t) {
+                m = (b + t) >> 1;
+#ifdef VAR_KEY
+                c = vkcmp((char*)p->k(m), (char*)key);
+                if (c > 0)
+                    b = m + 1;
+                else if (c < 0)
+                    t = m - 1;
+#else
+                if (key > p->k(m))
+                    b = m + 1;
+                else if (key < p->k(m))
+                    t = m - 1;
+#endif
+                else {
+                    p = p->ch(m);
+                    ppos[i] = m;
+                    goto inner_done1;
+                }
+            }
+
+            // sequential search (which is slightly faster now)
+            for (; b <= t; b++)
+#ifdef VAR_KEY
+                if (vkcmp((char*)key, (char*)p->k(b)) > 0) break;
+#else
+                if (key < p->k(b)) break;
+#endif
+            if (b == 1) b++;
+            p = p->ch(b - 1);
+            ppos[i] = b - 1;
+
+        inner_done1:;
+        }
+        for (i = tree_meta->root_level; i > 0; i--) {
+            page_addr[i].push_back((void*)parray[i]);
+            // bnodes[i].push_back((bnode *)parray[i]);
+        }
+
+        int need_task_count = TASK_COUNT - sst_count;
+        int need_bnode_count = need_task_count * MAX_BNODE_NUM;
+        sst_page_index = -1;
+        sst_page_end_index = -1;
+
+        // *ret_start = ((bnode *)parray[1])->k(ppos[1]);
+        int cur_bnode_count = 0;
+        int task_bnode_count = 0;
+        bool write_seq = sst_count == 0 ? true : false;
+        // int start_pos = ppos[1];
+        //  return the result;
+        /*
+        we have two end，one is end_key，other is sst_end.
+        if end_key > sst_end. we should record sst_end_index.
+        if sst_end > end_key. sst_end_index = -1.
+        if sst_end_index != -1, we read more bnode.
+        */
+        assert(start_key <= sst_start);
+        assert(sst_start <= sst_end);
+        while (true) {
+            // 1. current bnode. bnode already in page_addr.
+            key_type& begin = ((bnode*)parray[1])->kBegin();
+            key_type& end = ((bnode*)parray[1])->kEnd();
+            if (!write_seq && sst_page_index == -1 && begin <= sst_start &&
+                sst_start <= end) {
+                sst_page_index = cur_bnode_count;
+            }
+            if (!write_seq && sst_page_end_index == -1 && begin <= sst_end &&
+                sst_end <= end) {
+                sst_page_end_index = cur_bnode_count;
+            }
+            if (sst_page_end_index != -1 || write_seq) {
+                task_bnode_count++;
+                if (task_bnode_count >= need_bnode_count) {
+                    // finish for bnode count.
+                    new_start_key = end + 1;
+                    break;
+                }
+            }
+            cur_bnode_count++;
+
+            // 2. get next bnode
+            int level;
+            for (level = 2; level <= tree_meta->root_level; level++) {
+                if (ppos[level] < pnum[level]) {
+                    ppos[level]++;
+                    while (level >= 2) {
+                        parray[level - 1] =
+                            ((bnode*)parray[level])->ch(ppos[level]);
+                        // end_key may be the next sst_start. we can't exced
+                        // them.
+                        if (((bnode*)parray[level - 1])->kBegin() >= end_key) {
+                          // finishe for end_key.
+                          new_start_key = end_key;
+                          goto inner_done2;
+                        }
+                        page_addr[level - 1].push_back(
+                            (void*)parray[level - 1]);
+                        // bnodes[level - 1].push_back((bnode *)parray[level -
+                        // 1]);
+                        ppos[level - 1] = 1;
+                        pnum[level - 1] = ((bnode*)parray[level - 1])->num();
+                        level--;
+                    }
+                    break;
+                }
+            }
+            if (level == tree_meta->root_level + 1) {
+                break;
+            }
+        }
+    inner_done2:;
+    }
+
+    // 4. RTM commit
+    // _xend();
+
+    return page_addr;
+}
+
 std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
     std::vector<key_type> starts, key_type* begin, key_type* end,
     std::vector<int>& page_indexs, std::vector<int>& entry_indexs,

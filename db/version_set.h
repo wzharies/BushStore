@@ -403,6 +403,8 @@ public:
   std::vector<FileMetaData*> inputs_[2];  // The two sets of inputs
   Slice smallest;
   Slice largest;
+  Slice sst_smallest;
+  Slice sst_largets;
 };
 
 }  // namespace leveldb

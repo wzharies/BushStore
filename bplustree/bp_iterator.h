@@ -34,6 +34,26 @@ class BP_Iterator : public Iterator {
     comparator_ = comparator;
     needTrim = true;
   }
+  void setKeyStartAndEnd(key_type startk, key_type endk,
+                         const Comparator* comparator) {
+    EncodeFixed64Reverse(cstartKey, startk);
+    EncodeFixed64Reverse(cendKey, endk);
+    startKey = Slice(cstartKey, 8);
+    endKey = Slice(cendKey, 8);
+    comparator_ = comparator;
+    needTrim = true;
+  }
+
+  void setStart(key_type startk){
+    EncodeFixed64Reverse(cstartKey, startk);
+    startKey = Slice(cstartKey, 8);
+  }
+
+  void setEnd(key_type endk){
+    EncodeFixed64Reverse(cendKey, endk);
+    endKey = Slice(cendKey, 8);
+  }
+
   ~BP_Iterator() override {
     // releaseKpage();
   }
@@ -179,6 +199,8 @@ class BP_Iterator : public Iterator {
   const Comparator* comparator_;
   Slice startKey;
   Slice endKey;
+  char cstartKey[12];
+  char cendKey[12];
   int start_pos_index_ = -1;
   int skipKpage = 0;
   int end_pos_index_ = -1;

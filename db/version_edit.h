@@ -8,6 +8,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <algorithm>
 
 #include "db/dbformat.h"
 
@@ -79,6 +80,12 @@ class VersionEdit {
   Status DecodeFrom(const Slice& src);
 
   std::string DebugString() const;
+
+  void sortNewFiles(const InternalKeyComparator &cmp){
+    std::sort(new_files_.begin(), new_files_.end(), [&](std::pair<int, FileMetaData>& it1, std::pair<int, FileMetaData>& it2){
+      return cmp.Compare(it1.second.smallest, it2.second.smallest); 
+    });
+  }
 
  private:
   friend class VersionSet;
