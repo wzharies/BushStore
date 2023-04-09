@@ -319,6 +319,7 @@ if(HAVE_TCMALLOC AND (NOT USE_ASAN))
   target_link_libraries(leveldb tcmalloc)
 endif(HAVE_TCMALLOC AND (NOT USE_ASAN))
 target_link_libraries(leveldb pmem)
+target_link_libraries(leveldb pmemlog)
 
 # Needed by port_stdcxx.h
 find_package(Threads REQUIRED)

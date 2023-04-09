@@ -37,6 +37,7 @@
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/global.h"
+#include "util/env_pm.h"
 #include "bplustree/bp_iterator.h"
 #include "bplustree/bp_merge_iterator.h"
 
@@ -205,7 +206,12 @@ Status DBImpl::NewDB() {
   new_db.SetLastSequence(0);
   const std::string manifest = DescriptorFileName(dbname_, 1);
   WritableFile* file;
-  Status s = env_->NewWritableFile(manifest, &file);
+  Status s;
+  if(options_.has_pm){
+    file = new PMWritableFileMMap(manifest.c_str());
+  }else{
+    s = env_->NewWritableFile(manifest, &file);
+  }
   if (!s.ok()) {
     return s;
   }
@@ -421,7 +427,12 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   // Open the log file
   std::string fname = LogFileName(dbname_, log_number);
   SequentialFile* file;
-  Status status = env_->NewSequentialFile(fname, &file);
+  Status status;
+  if(LOG_PM){
+    file = new PMSequentialFile(fname.c_str());
+  }else{
+    status = env_->NewSequentialFile(fname, &file);
+  }
   if (!status.ok()) {
     MaybeIgnoreError(&status);
     return status;

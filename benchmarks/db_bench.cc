@@ -65,7 +65,7 @@ static const char* FLAGS_benchmarks =
     "snappyuncomp,";
 
 // Number of key/values to place in database
-static int FLAGS_num = 20 * 1024 * 1024;
+static int FLAGS_num = 10 * 1024 * 1024;
 
 // Number of read operations to do.  If negative, do FLAGS_num reads.
 static int FLAGS_reads = -1;
@@ -74,7 +74,7 @@ static int FLAGS_reads = -1;
 static int FLAGS_threads = 1;
 
 // Size of each value
-static int FLAGS_value_size = 4096;
+static int FLAGS_value_size = 1000;
 
 // Arrange to generate values that shrink to this fraction of
 // their original size after compression
@@ -121,15 +121,15 @@ static bool FLAGS_use_existing_db = false;
 static bool FLAGS_reuse_logs = false;
 
 // Use the db with the following name.
-static const char* FLAGS_db = nullptr;
+static const char* FLAGS_db = "/mnt/pmem0.1/pm_test";
 
 static char* PM_PATH = nullptr;
 // static size_t VALUE_SIZE = 4096;
-static uint64_t PM_SIZE = 8ULL * 1024 * 1024 * 1024;
+static uint64_t PM_SIZE = 20ULL * 1024 * 1024 * 1024;
 static uint64_t EXTENT_SIZE = 128 * 1024 * 1024;
 static bool USE_PM = true;
-static bool FLUSH_SSD=true;
-static uint64_t BUCKET_NUMS = 8 * 1024 * 1024;
+static bool FLUSH_SSD=false;
+static uint64_t BUCKET_NUMS = 4 * 1024 * 1024;
 
 namespace leveldb {
 

@@ -18,6 +18,8 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "util/global.h"
+#include "util/env_pm.h"
 
 namespace leveldb {
 
@@ -936,7 +938,11 @@ Status VersionSet::Recover(bool* save_manifest) {
 
   std::string dscname = dbname_ + "/" + current;
   SequentialFile* file;
-  s = env_->NewSequentialFile(dscname, &file);
+  if(LOG_PM){
+    file = new PMSequentialFile(dscname.c_str());
+  }else{
+    s = env_->NewSequentialFile(dscname, &file);
+  }
   if (!s.ok()) {
     if (s.IsNotFound()) {
       return Status::Corruption("CURRENT points to a non-existent file",
