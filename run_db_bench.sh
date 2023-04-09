@@ -84,7 +84,7 @@ MAKE() {
 
 SETUP
 MAKE
-WRITE80G_FLUSHSSD
+WRITE10G
 cd ..
 $APP_PREFIX $db_bench/db_bench --benchmarks=$benchmarks --num=$num_kvs \
 --value_size=$value_size --write_buffer_size=$write_buffer_size --max_file_size=$max_file_size \

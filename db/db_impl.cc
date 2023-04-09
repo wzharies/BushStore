@@ -45,7 +45,7 @@
 #define DEBUG_PRINT
 #define CUCKOO_FILTER
 #define CAL_TIME
-// #define LOG_SYS
+#define LOG_SYS
 
 namespace leveldb {
 
@@ -1229,7 +1229,8 @@ Status DBImpl::CompactionLevel1Concurrency(){
     int sst_page_end_index;
     auto divideBnode = [&](){
       std::vector<void*> &bnodes = pages2[1];
-      auto fillTaskBeforeSST = [&](int start_index, int end_index){
+      int new_start_index = -1;
+      auto fillTaskOverSST = [&](int start_index, int end_index, bool first){
         for(int i = start_index; i < end_index; i += MAX_BNODE_NUM){
           // if(end_index - i < MAX_BNODE_NUM / 5){
           //   break;
@@ -1243,10 +1244,16 @@ Status DBImpl::CompactionLevel1Concurrency(){
             end = ((bnode*)bnodes[i + MAX_BNODE_NUM])->kBegin();
             bnode_count = MAX_BNODE_NUM;
           }else{
-            end =(((bnode*)bnodes.back())->kEnd() + 1);
-            bnode_count = end_index - i;
+            new_start_index = i;
+            // it is temp end, it is wrong.
+            if(first){
+              break;
+            }else{
+              end =(((bnode*)bnodes.back())->kEnd() + 1);
+              bnode_count = end_index - i;
+            }
           }
-          BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 0, INT_MAX, false, i);
+          BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1, INT_MAX, false, i);
           it->setKeyStartAndEnd(start, end, user_comparator());
           tasks.push_back({.it = it});
           tasks.back().set(start, end, i);
@@ -1258,31 +1265,38 @@ Status DBImpl::CompactionLevel1Concurrency(){
         for(int i = 0; i < files.size(); i += MAX_FILE_NUM){
           starts.push_back(DecodeDBBenchFixed64(files[i]->smallest.Encode().data()));
         }
+        if(files.size() % MAX_FILE_NUM <= MAX_FILE_NUM / 4 && starts.size() > 1){
+          starts.pop_back();
+        }
         starts.push_back(DecodeDBBenchFixed64(files.back()->largest.Encode().data()) + 1);
         
         //2 获取边界值对应的index
-        std::vector<key_type>::iterator s = starts.begin();
+        int cur = 0;
         int sst_index;
         int last_index;
         assert(starts.size() >=2 );
-        std::vector<int> start_index;
-        int last = sst_page_end_index == -1 ? bnodes.size() : sst_page_end_index;
-        for(int i = sst_page_index; i < last; i++){
+        std::vector<int> start_index(-1, starts.size());
+        // int last = sst_page_end_index == -1 ? bnodes.size() : sst_page_end_index;
+        int first = sst_page_index == -1 ? 0 : sst_page_index;
+        for(int i = first; i < bnodes.size(); i++){
           auto& b = ((bnode*)bnodes[i])->kBegin();
-          auto& e = ((bnode*)bnodes[i])->kEnd();;
-          if(b <= *s && *s <= e){
-            start_index.push_back(i);
-            if(s != starts.end())
-              s++;
-            else
-             break;
+          while (cur < starts.size() && starts[cur] < b) {
+            cur++;
+          }
+          if (cur >= starts.size()) {
+            break;
+          }
+          if (b <= starts[cur]) {
+            start_index[cur] = i;
           }
         }
         //3. 生成对应的task
-        assert(start_index.size() <= starts.size());
-        last = start_index.size() == starts.size() ? start_index.size() - 1 : start_index.size();
-        for(int i = 0; i < last; i++){
-          BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 0, INT_MAX, false, start_index[i]);
+        for(int i = 0; i < start_index.size() - 1; i++){
+          int begin_index = start_index[i] == -1 ? 0 : start_index[i];
+          if(starts[i + 1] < ((bnode*)bnodes[begin_index])->kBegin()){
+            continue;
+          }
+          BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1, INT_MAX, false, begin_index);
           it->setKeyStartAndEnd(starts[i], starts[i+1], user_comparator());
           tasks.push_back({});
           std::vector<FileMetaData*>::iterator endIt = (i + 1) * MAX_FILE_NUM < files.size() ? files.begin() + (i + 1) * MAX_FILE_NUM : files.end();
@@ -1290,24 +1304,39 @@ Status DBImpl::CompactionLevel1Concurrency(){
           Iterator* it2 = versions_->getTwoLevelIterator(tasks.back().files);
           Iterator* its[2] = {it, it2};
           tasks.back().it = NewMergingIterator(user_comparator(), its, 2);
-          tasks.back().set(starts[i], starts[i+1], start_index[i]);
+          tasks.back().set(starts[i], starts[i+1], begin_index);
         }
       };
+      auto mergeTask = [&](){
+        // for(int i = 0; i < tasks.size(); i++){
+        //   auto &task = tasks[i];
+        //   if(task.bnode_begin == )
+        // }
+      };
       if(files.empty()){
-        fillTaskBeforeSST(0, bnodes.size());
+        fillTaskOverSST(0, bnodes.size(), false);
       }else{
         // add task before sst.
-        fillTaskBeforeSST(0, sst_page_index + 1);
-        ((BP_Iterator*)tasks.back().it)->setEnd(sst_start);
+        fillTaskOverSST(0, sst_page_index + 1, true);
+        if(!tasks.empty()){
+          ((BP_Iterator*)tasks.back().it)->setEnd(sst_start);
+        }
         // add sst in task.
-        fillTaskBySST();
+        if(sst_page_index != -1 || sst_page_end_index != -1){
+          int cur_task_count = tasks.size();
+          fillTaskBySST();
+          if(cur_task_count < tasks.size() && new_start_index != -1){
+            ((BP_Iterator*)tasks[cur_task_count].it)->setStart(((bnode*)bnodes[new_start_index])->kBegin());
+          }
+        }
         if(sst_page_end_index != -1){
           int cur_task_count = tasks.size();
-          fillTaskBeforeSST(sst_page_end_index, bnodes.size());
+          fillTaskOverSST(sst_page_end_index, bnodes.size(), false);
           if(cur_task_count < tasks.size()){
             ((BP_Iterator*)tasks[cur_task_count].it)->setStart(sst_end);
           }
         }
+        mergeTask();
       }
     };
 
@@ -1451,7 +1480,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
   std::vector<CompactionState*> states;
   for(int i = 0; i < tasks.size(); i++){
     states.push_back(new CompactionState(c));
-    std::thread th(writeToSSD, tasks[i], states.back());
+    std::thread th(writeToSSD, std::ref(tasks[i]), states.back());
     threads.push_back(std::move(th));
   }
   for(int i = 0; i < tasks.size(); i++){
@@ -1471,52 +1500,52 @@ Status DBImpl::CompactionLevel1Concurrency(){
 
   // replace指定范围的B-Tree的索引和kPage,
   // 自底向上（不会死锁，锁用一个释放一个）
-  {
-    std::lock_guard<std::mutex> lock(mutex_l1_);
-    std::shared_ptr<lbtree> tree2 = Table_LN_[0];
-    // tree2->needFreeNodePages = pages2;
-    if(files.empty()){
-      tree2->rangeDelete(pages2, tree2->tree_meta->min_key, tree2->tree_meta->max_key);
-      Table_LN_.clear();
-#ifdef DEBUG_PRINT
-      start_key = tree2->tree_meta->min_key;
-      end_key = tree2->tree_meta->max_key;
-#endif
-    }else{
-      tree2->rangeDelete(pages2, start_key, end_key);
-      if(end_key == tree2->tree_meta->max_key){
-        tree2->tree_meta->max_key = start_key - 1;
-      }
-      if(start_key == tree2->tree_meta->min_key){
-        tree2->tree_meta->min_key = end_key + 1;
-      }
+//   {
+//     std::lock_guard<std::mutex> lock(mutex_l1_);
+//     std::shared_ptr<lbtree> tree2 = Table_LN_[0];
+//     // tree2->needFreeNodePages = pages2;
+//     if(files.empty()){
+//       tree2->rangeDelete(pages2, tree2->tree_meta->min_key, tree2->tree_meta->max_key);
+//       Table_LN_.clear();
+// #ifdef DEBUG_PRINT
+//       start_key = tree2->tree_meta->min_key;
+//       end_key = tree2->tree_meta->max_key;
+// #endif
+//     }else{
+//       tree2->rangeDelete(pages2, start_key, end_key);
+//       if(end_key == tree2->tree_meta->max_key){
+//         tree2->tree_meta->max_key = start_key - 1;
+//       }
+//       if(start_key == tree2->tree_meta->min_key){
+//         tree2->tree_meta->min_key = end_key + 1;
+//       }
 
-    }
-    ((BP_Iterator*)it1)->releaseKpage();
-#ifdef MY_DEBUG
-  if(!Table_LN_.empty()){
-    Table_LN_[0]->reverseAndCheck();
-  }
-#endif
-  }
-  delete input;
+//     }
+//     ((BP_Iterator*)it1)->releaseKpage();
+// #ifdef MY_DEBUG
+//   if(!Table_LN_.empty()){
+//     Table_LN_[0]->reverseAndCheck();
+//   }
+// #endif
+//   }
+//   delete input;
 
-#ifdef CAL_TIME
-  imm_micros = env_->NowMicros() - start_micros;
-#endif
-#ifdef DEBUG_PRINT
-      double usage1 = pmAlloc_->getMemoryUsabe();
-      std::cout<< "compaction at level 1, cost time : "<< imm_micros / 1000;
-      std::cout<< " memoryUsage: "<<usage1;
-      std::cout<< " min key : " << start_key << " max key : " << end_key << std::endl;
-#endif
-  if (!status.ok()) {
-    RecordBackgroundError(status);
-  }
-  CleanupCompaction(compact);
-  c->ReleaseInputs();
-  RemoveObsoleteFiles();
-  delete c;
+// #ifdef CAL_TIME
+//   imm_micros = env_->NowMicros() - start_micros;
+// #endif
+// #ifdef DEBUG_PRINT
+//       double usage1 = pmAlloc_->getMemoryUsabe();
+//       std::cout<< "compaction at level 1, cost time : "<< imm_micros / 1000;
+//       std::cout<< " memoryUsage: "<<usage1;
+//       std::cout<< " min key : " << start_key << " max key : " << end_key << std::endl;
+// #endif
+//   if (!status.ok()) {
+//     RecordBackgroundError(status);
+//   }
+//   CleanupCompaction(compact);
+//   c->ReleaseInputs();
+//   RemoveObsoleteFiles();
+//   delete c;
   return Status::OK();
 }
 

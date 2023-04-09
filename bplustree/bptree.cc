@@ -352,15 +352,13 @@ std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
             // 1. current bnode. bnode already in page_addr.
             key_type& begin = ((bnode*)parray[1])->kBegin();
             key_type& end = ((bnode*)parray[1])->kEnd();
-            if (!write_seq && sst_page_index == -1 && begin <= sst_start &&
-                sst_start <= end) {
+            if (!write_seq && begin <= sst_start) {
                 sst_page_index = cur_bnode_count;
             }
-            if (!write_seq && sst_page_end_index == -1 && begin <= sst_end &&
-                sst_end <= end) {
+            if (!write_seq && begin <= sst_end) {
                 sst_page_end_index = cur_bnode_count;
             }
-            if (sst_page_end_index != -1 || write_seq) {
+            if (write_seq) {
                 task_bnode_count++;
                 if (task_bnode_count >= need_bnode_count) {
                     // finish for bnode count.
