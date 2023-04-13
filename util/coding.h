@@ -51,6 +51,13 @@ char* EncodeVarint64(char* dst, uint64_t value);
 // Lower-level versions of Put... that write directly into a character buffer
 // REQUIRES: dst has enough space for the value being written
 
+inline void EncodeFixed8(char* dst, unsigned char value) {
+  uint8_t* const buffer = reinterpret_cast<uint8_t*>(dst);
+
+  // Recent clang and gcc optimize this to a single mov / str instruction.
+  buffer[0] = static_cast<uint8_t>(value);
+}
+
 inline void EncodeFixed32(char* dst, uint32_t value) {
   uint8_t* const buffer = reinterpret_cast<uint8_t*>(dst);
 
@@ -91,6 +98,12 @@ inline void EncodeFixed64Reverse(char* dst, uint64_t value) {
 
 // Lower-level versions of Get... that read directly from a character buffer
 // without any bounds checking.
+inline uint8_t DecodeFixed8(const char* ptr) {
+  const uint8_t* const buffer = reinterpret_cast<const uint8_t*>(ptr);
+
+  // Recent clang and gcc optimize this to a single mov / ldr instruction.
+  return (static_cast<uint32_t>(buffer[0]));
+}
 
 inline uint32_t DecodeFixed32(const char* ptr) {
   const uint8_t* const buffer = reinterpret_cast<const uint8_t*>(ptr);

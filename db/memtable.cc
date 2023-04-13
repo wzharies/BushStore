@@ -8,6 +8,7 @@
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
 #include "util/coding.h"
+#include "bplustree/bptree.h"
 
 namespace leveldb {
 
@@ -61,7 +62,15 @@ class MemTableIterator : public Iterator {
   Slice key() const override { return GetLengthPrefixedSlice(iter_.key()); }
   Slice value() const override {
     Slice key_slice = GetLengthPrefixedSlice(iter_.key());
-    return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
+
+    auto getValueFromAddr = [](const char* p){
+      uint32_t pointer = DecodeFixed32(p);
+      uint8_t index = DecodeFixed8(p+4);
+      vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
+      return vp->v(index);
+    };
+
+    return getValueFromAddr(key_slice.data() + key_slice.size());
   }
 
   Status status() const override { return Status::OK(); }
@@ -85,17 +94,26 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   size_t val_size = value.size();
   size_t internal_key_size = key_size + 8;
   const size_t encoded_len = VarintLength(internal_key_size) +
-                             internal_key_size + VarintLength(val_size) +
-                             val_size;
+                             internal_key_size +
+                            //  VarintLength(val_size) +
+                            //  val_size;
+                             5;
   char* buf = arena_.Allocate(encoded_len);
   char* p = EncodeVarint32(buf, internal_key_size);
   std::memcpy(p, key.data(), key_size);
   p += key_size;
   EncodeFixed64(p, (s << 8) | type);
   p += 8;
-  p = EncodeVarint32(p, val_size);
-  std::memcpy(p, value.data(), val_size);
-  assert(p + val_size == buf + encoded_len);
+  if(type != kTypeDeletion){
+    auto [pointer, index] = write_.writeValue(value);
+    EncodeFixed32(p, pointer);
+    p+=4;
+    EncodeFixed8(p, index);
+    assert(p + 1 == buf + encoded_len);
+  }
+  // p = EncodeVarint32(p, val_size);
+  // std::memcpy(p, value.data(), val_size);
+  // assert(p + val_size == buf + encoded_len);
   table_.Insert(buf);
   kvCount_++;
 }
@@ -104,6 +122,19 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
   Slice memkey = key.memtable_key();
   Table::Iterator iter(&table_);
   iter.Seek(memkey.data());
+
+  auto getValue = [](uint32_t &pointer, uint8_t &index){
+    vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
+    return vp->v(index);
+  };
+
+  auto getValueFromAddr = [](const char* p){
+    uint32_t pointer = DecodeFixed32(p);
+    uint8_t index = DecodeFixed8(p+4);
+    vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
+    return vp->v(index);
+  };
+
   if (iter.Valid()) {
     // entry format is:
     //    klength  varint32
@@ -123,7 +154,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
-          Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+          // Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+          Slice v = getValueFromAddr(key_ptr + key_length);
           value->assign(v.data(), v.size());
           return true;
         }

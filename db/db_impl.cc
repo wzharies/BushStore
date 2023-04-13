@@ -46,7 +46,7 @@
 #define DEBUG_PRINT
 #define CUCKOO_FILTER
 #define CAL_TIME
-#define LOG_SYS
+// #define LOG_SYS
 
 namespace leveldb {
 

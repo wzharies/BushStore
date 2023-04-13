@@ -17,6 +17,13 @@ namespace leveldb {
 class InternalKeyComparator;
 class MemTableIterator;
 
+class vPageWrite {
+public:
+  std::tuple<uint32_t, unsigned char> writeValue(const Slice& value){
+
+  }
+};
+
 class MemTable {
  public:
   // MemTables are reference counted.  The initial reference count
@@ -79,6 +86,7 @@ class MemTable {
   ~MemTable();  // Private since only Unref() should be used to delete it
 
   KeyComparator comparator_;
+  vPageWrite write_;
   int refs_;
   Arena arena_;
   Table table_;
