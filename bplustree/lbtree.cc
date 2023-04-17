@@ -408,7 +408,7 @@ int lbtree::bulkload(int keynum, keyInput *input, float bfill)
     }
 
     // 3. compute start num_key for each thread
-    int kn_per_thread = floor(keynum, num_threads);
+    int kn_per_thread = floor2(keynum, num_threads);
     int kn_max = keynum - (num_threads - 1) * kn_per_thread;
 
     for (int i = 0; i < num_threads; i++)

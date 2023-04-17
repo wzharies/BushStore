@@ -154,11 +154,11 @@ class BP_Iterator : public Iterator {
 
   Slice key() const override { return kpage_->k(pos_data_); }
 
-  unsigned char finger() { return kpage_->finger[pos_data_]; }
+  uint16_t finger() { return kpage_->finger[pos_data_]; }
 
   uint32_t pointer() const { return kpage_->pointer[pos_data_]; }
 
-  unsigned char index() const { return kpage_->index[pos_data_]; }
+  uint16_t index() const { return kpage_->index[pos_data_]; }
 
   Slice value() const override {
     // TODO 也许可以优化？
@@ -169,8 +169,8 @@ class BP_Iterator : public Iterator {
   void clrValue() {
     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
     addr->clrBitMap(index());
-    addr->bitmap = addr->bitmap & (~(1ULL << index()));
-    if (addr->bitmap == 0) {
+    // addr->bitmap = addr->bitmap & (~(1ULL << index()));
+    if (addr->nums() == 0) {
       // TODO vPage需要删除,最好把pmALloc设置为全局变量或者单例
       //  std::cout<< "free : " << addr <<std::endl;
       alloc_->freePage((char*)addr, value_t);

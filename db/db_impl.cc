@@ -207,11 +207,11 @@ Status DBImpl::NewDB() {
   const std::string manifest = DescriptorFileName(dbname_, 1);
   WritableFile* file;
   Status s;
-  if(options_.has_pm){
-    file = new PMWritableFileMMap(manifest.c_str());
-  }else{
+  // if(options_.has_pm){
+  //   file = new PMWritableFileMMap(manifest.c_str());
+  // }else{
     s = env_->NewWritableFile(manifest, &file);
-  }
+  // }
   if (!s.ok()) {
     return s;
   }
@@ -428,11 +428,11 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   std::string fname = LogFileName(dbname_, log_number);
   SequentialFile* file;
   Status status;
-  if(LOG_PM){
-    file = new PMSequentialFile(fname.c_str());
-  }else{
+  // if(LOG_PM){
+  //   file = new PMSequentialFile(fname.c_str());
+  // }else{
     status = env_->NewSequentialFile(fname, &file);
-  }
+  // }
   if (!status.ok()) {
     MaybeIgnoreError(&status);
     return status;
@@ -468,6 +468,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
 
     if (mem == nullptr) {
       mem = new MemTable(internal_comparator_);
+      mem->setPMAllocator(pmAlloc_);
       mem->Ref();
     }
     status = WriteBatchInternal::InsertInto(&batch, mem);
@@ -514,6 +515,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
       } else {
         // mem can be nullptr if lognum exists but was empty.
         mem_ = new MemTable(internal_comparator_);
+        mem_->setPMAllocator(pmAlloc_);
         mem_->Ref();
       }
     }
@@ -537,7 +539,7 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   const uint64_t start_micros = env_->NowMicros();
   int level = 0;
 #endif
-  Iterator* iter = mem->NewIterator();
+  MemTableIterator* iter = (MemTableIterator*)mem->NewIterator();
 #ifdef CUCKOO_FILTER
   mutex_l0_.lock();
   uint32_t currentFileNumber = cuckoo_filter_->minFileNumber + Table_L0_.size();
@@ -561,7 +563,10 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
         uint64_t curKey = DecodeDBBenchFixed64(key.data());
         //assert(curKey == count);
         count++;
-        pb->add(key, iter->value());
+        auto [pointer, index] = iter->valuePointer();
+        assert(index >= 4);
+        pb->add(key, pointer, index);
+        // pb->add(key, iter->value());
 #ifdef CUCKOO_FILTER
         cuckoo_filter_->Put(ExtractUserKey(key), currentFileNumber);
 #endif
@@ -2630,6 +2635,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       imm_ = mem_;
       has_imm_.store(true, std::memory_order_release);
       mem_ = new MemTable(internal_comparator_);
+      mem_->setPMAllocator(pmAlloc_);
       mem_->Ref();
       force = false;  // Do not force another compaction if have room
       MaybeScheduleCompaction();
@@ -2755,6 +2761,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
       impl->logfile_number_ = new_log_number;
       impl->log_ = new log::Writer(lfile);
       impl->mem_ = new MemTable(impl->internal_comparator_);
+      impl->mem_->setPMAllocator(impl->pmAlloc_);
       impl->mem_->Ref();
     }
   }

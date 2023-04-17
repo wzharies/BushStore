@@ -29,7 +29,7 @@ PMMemAllocator::PMMemAllocator(const Options& options) : options_(options), new_
       // if(((uint64_t)base_addr) % options_.pm_size_ != 0){
       //   pmem_unmap(reinterpret_cast<void*>(base_addr), mapped_len_);
       // }else{
-      pmem_memset_nodrain(addr, 0, options_.pm_size_);
+      // pmem_memset_nodrain(addr, 0, options_.pm_size_);
       break;
       // }
     }
@@ -45,8 +45,8 @@ PMMemAllocator::PMMemAllocator(const Options& options) : options_(options), new_
   kPage_count_ = calPageCount(options_.extent_size_, kPage_size_);
 
   vPage_slot_count_ = (256 - 16) / 4;
-  vPage_size_ =
-      SuitablePageSize(256 + vPage_slot_count_ * (8 + options_.value_size_));
+  vPage_size_ = 512 * 1024;
+      // SuitablePageSize(256 + vPage_slot_count_ * (8 + options_.value_size_));
   vPage_count_ = calPageCount(options_.extent_size_, vPage_size_);
 }
 
@@ -82,6 +82,10 @@ uint64_t PMMemAllocator::SuitablePageSize(uint64_t page_size) {
     return 128 * 1024;
   } else if (page_size < 256 * 1024) {
     return 256 * 1024;
+  } else if (page_size < 512 * 1024) {
+    return 512 * 1024;
+  } else if (page_size < 1024 * 1024) {
+    return 1024 * 1024;
   }
   std::cout<< "error : big value size" << std::endl;
   return -1;
@@ -147,6 +151,7 @@ void* PMMemAllocator::mallocPage(PageType type) {
 }
 
 void PMMemAllocator::freePage(char* addr, PageType type) {
+  std::lock_guard<std::mutex> lock(mutex_);
   size_t index = ((uint64_t)addr - base_addr) / options_.extent_size_;
   assert(index < pages.size());
   pages[index]->freePage(addr);

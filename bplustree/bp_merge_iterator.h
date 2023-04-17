@@ -35,7 +35,7 @@ public:
         return current_->key();
     }
 
-    unsigned char finger(){
+    uint16_t finger(){
         return current_->finger();
     }
 
@@ -43,7 +43,7 @@ public:
         return current_->pointer();
     }
 
-    unsigned char index(){
+    uint16_t index(){
         return current_->index();
     }
 

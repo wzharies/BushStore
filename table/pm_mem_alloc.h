@@ -22,16 +22,16 @@ enum PageType {
 
 extern uint64_t base_addr;
 
-inline uint64_t getRelativeAddr(void* addr){
+inline uint64_t getRelativeAddr(const void* addr){
   return (uint64_t)addr - base_addr;
 }
-inline void* getAbsoluteAddr(void* addr){
+inline void* getAbsoluteAddr(const void* addr){
   return (void* )((uint64_t)addr + base_addr);
 }
-inline uint64_t getRelativeAddr(uint64_t addr){
+inline uint64_t getRelativeAddr(const uint64_t addr){
   return addr - base_addr;
 }
-inline void* getAbsoluteAddr(uint64_t addr){
+inline void* getAbsoluteAddr(const uint64_t addr){
   return (void* )(addr + base_addr);
 }
 
@@ -66,6 +66,7 @@ public:
     used_count_ = 0;
     uint64_t ceilBitmapSize = ceilBitMapSize(page_count, page_size);
     page_start_addr_ = pmem_addr + ceilBitmapSize;
+    pmem_memset_nodrain(pmem_addr,0, ceilBitmapSize);
     // if(page_count + 64 < 4096 * 8){
     //   page_start_addr_ = pmem_addr_ + 4096;
     // }else{
@@ -91,6 +92,7 @@ public:
       used_count_++;
       res.push_back(ret);
     }
+    assert(page_count_ - used_count_ == free_lists_.size());
     return res;
   }
   char* getNewPage() {
@@ -107,6 +109,7 @@ public:
     // }
 
     if(free_lists_.empty()){
+      assert(page_count_ - used_count_ == free_lists_.size());
       return nullptr;
     }
     char* ret = free_lists_.front();
@@ -114,6 +117,7 @@ public:
     int index = (ret - page_start_addr_) / page_size_;
     bitmap_->set(index);
     used_count_++;
+    assert(page_count_ - used_count_ == free_lists_.size());
     return ret;
   }
   void freePage(char* page_addr) {
@@ -125,6 +129,7 @@ public:
     bitmap_->clr((addr - page_start_addr_) / page_size_);
     used_count_--;
     assert(used_count_ >= 0);
+    assert(page_count_ - used_count_ == free_lists_.size());
   }
   bool isFull() { return used_count_ == page_count_; }
   ~PMExtent() {}

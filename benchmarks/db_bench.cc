@@ -919,12 +919,12 @@ class Benchmark {
       // const int k = thread->rand.Uniform(FLAGS_num);
       key.Set(k);
       if (db_->Get(options, key.slice(), &value).ok()) {
-        found++;
-        // uint64_t k_temp = DecodeFixed64(value.c_str());
-        // if(k == k_temp)
-        //   found++;
-        // else
-        //   wrong++;
+        // found++;
+        uint64_t k_temp = DecodeFixed64(value.c_str());
+        if(k == k_temp)
+          found++;
+        else
+          wrong++;
       }
       thread->stats.FinishedSingleOp();
     }

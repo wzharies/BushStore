@@ -12,13 +12,6 @@
 
 namespace leveldb {
 
-static Slice GetLengthPrefixedSlice(const char* data) {
-  uint32_t len;
-  const char* p = data;
-  p = GetVarint32Ptr(p, p + 5, &len);  // +5: we assume "p" is not corrupted
-  return Slice(p, len);
-}
-
 MemTable::MemTable(const InternalKeyComparator& comparator)
     : comparator_(comparator), refs_(0), table_(comparator_, &arena_), kvCount_(0) {}
 
@@ -33,52 +26,6 @@ int MemTable::KeyComparator::operator()(const char* aptr,
   Slice b = GetLengthPrefixedSlice(bptr);
   return comparator.Compare(a, b);
 }
-
-// Encode a suitable internal key target for "target" and return it.
-// Uses *scratch as scratch space, and the returned pointer will point
-// into this scratch space.
-static const char* EncodeKey(std::string* scratch, const Slice& target) {
-  scratch->clear();
-  PutVarint32(scratch, target.size());
-  scratch->append(target.data(), target.size());
-  return scratch->data();
-}
-
-class MemTableIterator : public Iterator {
- public:
-  explicit MemTableIterator(MemTable::Table* table) : iter_(table) {}
-
-  MemTableIterator(const MemTableIterator&) = delete;
-  MemTableIterator& operator=(const MemTableIterator&) = delete;
-
-  ~MemTableIterator() override = default;
-
-  bool Valid() const override { return iter_.Valid(); }
-  void Seek(const Slice& k) override { iter_.Seek(EncodeKey(&tmp_, k)); }
-  void SeekToFirst() override { iter_.SeekToFirst(); }
-  void SeekToLast() override { iter_.SeekToLast(); }
-  void Next() override { iter_.Next(); }
-  void Prev() override { iter_.Prev(); }
-  Slice key() const override { return GetLengthPrefixedSlice(iter_.key()); }
-  Slice value() const override {
-    Slice key_slice = GetLengthPrefixedSlice(iter_.key());
-
-    auto getValueFromAddr = [](const char* p){
-      uint32_t pointer = DecodeFixed32(p);
-      uint8_t index = DecodeFixed8(p+4);
-      vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
-      return vp->v(index);
-    };
-
-    return getValueFromAddr(key_slice.data() + key_slice.size());
-  }
-
-  Status status() const override { return Status::OK(); }
-
- private:
-  MemTable::Table::Iterator iter_;
-  std::string tmp_;  // For passing to EncodeKey
-};
 
 Iterator* MemTable::NewIterator() { return new MemTableIterator(&table_); }
 
@@ -97,7 +44,7 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
                              internal_key_size +
                             //  VarintLength(val_size) +
                             //  val_size;
-                             5;
+                             6;
   char* buf = arena_.Allocate(encoded_len);
   char* p = EncodeVarint32(buf, internal_key_size);
   std::memcpy(p, key.data(), key_size);
@@ -105,11 +52,12 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   EncodeFixed64(p, (s << 8) | type);
   p += 8;
   if(type != kTypeDeletion){
-    auto [pointer, index] = write_.writeValue(value);
+    auto [pointer, index] = write_.writeValue(key, value);
+    assert(index >= 4);
     EncodeFixed32(p, pointer);
     p+=4;
-    EncodeFixed8(p, index);
-    assert(p + 1 == buf + encoded_len);
+    EncodeFixed16(p, index);
+    assert(p + 2 == buf + encoded_len);
   }
   // p = EncodeVarint32(p, val_size);
   // std::memcpy(p, value.data(), val_size);
@@ -123,14 +71,14 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
   Table::Iterator iter(&table_);
   iter.Seek(memkey.data());
 
-  auto getValue = [](uint32_t &pointer, uint8_t &index){
+  auto getValue = [](uint32_t &pointer, uint16_t &index){
     vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
     return vp->v(index);
   };
 
   auto getValueFromAddr = [](const char* p){
     uint32_t pointer = DecodeFixed32(p);
-    uint8_t index = DecodeFixed8(p+4);
+    uint16_t index = DecodeFixed16(p+4);
     vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
     return vp->v(index);
   };

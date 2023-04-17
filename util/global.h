@@ -15,6 +15,8 @@ constexpr int MAX_FILE_NUM = 5;
 constexpr int MAX_BNODE_NUM = 100;
 constexpr int TASK_COUNT = 8;
 constexpr bool LOG_PM = true;
+constexpr int max_size = 512 * 1024;
+constexpr bool use_pm = true;
 
 }  // namespace leveldb
 

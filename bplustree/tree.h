@@ -83,6 +83,11 @@ Returns the number of 1-bits in x.
 #define countBit(x) __builtin_popcount(x)
 
 extern size_t key_size_;
+static inline uint16_t hashcode2B(key_type x){
+   x ^= x >> 32;
+   x ^= x >> 16;
+   return (uint16_t)(x & 0x0ffffULL);
+}
 
 static inline unsigned char hashcode1B(key_type x)
 {
@@ -110,7 +115,7 @@ static inline unsigned long long rdtsc(void)
 
 // compute ceiling(x/y) and floor(x/y)
 #define ceiling(x, y) (((x) + (y)-1) / (y))
-#define floor(x, y) ((x) / (y))
+#define floor2(x, y) ((x) / (y))
 
 // #define swap(x, y)   \
 //    do                \

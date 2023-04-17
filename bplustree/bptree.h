@@ -41,7 +41,7 @@ namespace leveldb {
 #error "LB+-Tree requires leaf node size to be 256B."
 #endif
 
-#define LEAF_KEY_NUM (40)
+#define LEAF_KEY_NUM (29)
 #define LEAF_VALUE_NUM (60)
 
 // at most 1 of the following 2 macros may be defined
@@ -219,18 +219,16 @@ public:
     }
 
 }; // bnode
-
-
 class kPage{
 public:
-    uint64_t max_key;
+    uint64_t next;
     uint64_t bitmap : LEAF_KEY_NUM;
-    uint64_t lock : 1;
-    uint64_t alt : 1;
-    uint64_t nums : 8;
-    unsigned char finger[LEAF_KEY_NUM]; //指纹
+    // uint64_t lock : 1;
+    // uint64_t alt : 1;
+    uint64_t nums;
+    uint16_t finger[LEAF_KEY_NUM]; //指纹
     uint32_t pointer[LEAF_KEY_NUM]; //vPage地址，4k对齐，后12位不存储
-    unsigned char index[LEAF_KEY_NUM]; //在vpage的第几个
+    uint16_t index[LEAF_KEY_NUM]; //在vpage的第几个
     char keys[];
     key_type rawK(size_t index){
         return DecodeDBBenchFixed64(keys + index * 16);
@@ -266,40 +264,122 @@ public:
         nums = nums- (end - start);
     }
 };
-
-class vPage{
-public:
-    // 4 + 4 + 8 + 4 * n = 256
-    uint32_t total_num;
-    uint32_t alloc_num;
+constexpr int ONE_META_ENTRY_NUM = (256 - 8) / 4; 
+constexpr int VPAGE_START_INDEX = 4;
+constexpr int VPAGE_KEY_SIZE = 8;
+struct MetaEntry{
     uint64_t bitmap;
-    uint32_t offset[LEAF_VALUE_NUM];
-    char kvs[]; //4B size + value;
+    uint32_t offset[ONE_META_ENTRY_NUM];
+};
+// offset 0-4 : nums(4B) + capacity(4B) + next(8B);
+struct vPage{
+    MetaEntry meta[0];
+    uint32_t& capacity(){
+        return meta[0].offset[1];
+    }
+    uint32_t& nums(){
+        return meta[0].offset[0];
+    }
+    uint32_t& offset(size_t index){
+        // assert(VPAGE_START_INDEX <= index && index < capacity());
+        size_t entryIndex = index / ONE_META_ENTRY_NUM;
+        size_t metaIndex = index % ONE_META_ENTRY_NUM;
+        return meta[entryIndex].offset[metaIndex];
+    }
+    void* next(){
+        return (void*)(*(uint64_t*)(meta[0].offset + 1));
+    }
+    // bool isFull(){
+    //     return false;
+    // }
     char* getValueAddr(size_t index){
-        assert(index < alloc_num);
-        return (char *)((char*)this + offset[index]);
+        assert(VPAGE_START_INDEX <= index && index < capacity());
+        size_t entryIndex = index / ONE_META_ENTRY_NUM;
+        size_t metaIndex = index % ONE_META_ENTRY_NUM;
+        return (char*)((char*)this + meta[entryIndex].offset[metaIndex]);
     }
     leveldb::Slice v(size_t index){
-        char* start = (char *)((char*)this + offset[index]);
-        uint32_t v_len = leveldb::DecodeFixed32(start);
-        return leveldb::Slice(start + 4, v_len);
+        char* start = getValueAddr(index);
+        uint32_t v_len = leveldb::DecodeFixed32(start + VPAGE_KEY_SIZE);
+        return leveldb::Slice(start + VPAGE_KEY_SIZE + 4, v_len);
     }
-    uint32_t setv(size_t index, uint32_t off, leveldb::Slice value){
-        leveldb::EncodeFixed32((char*)this + off, value.size());
-        memcpy((char*)this + 4 + off, value.data(), value.size());
-        offset[index] = off;
-        return off + 4 + value.size();
+    bool isFull(int off, size_t index){
+        if(256 * (index / 62 + 1) > off){
+            return true;
+        }
+        return false;
+    }
+    uint32_t setkv(size_t index, uint32_t off, const leveldb::Slice& key, const leveldb::Slice& value){
+        // assert(VPAGE_START_INDEX <= index && index < capacity());
+        assert(key.size() == 8);
+        assert(off > VPAGE_KEY_SIZE + 4 + value.size());
+        off -= (VPAGE_KEY_SIZE + 4 + value.size());
+        memcpy((char*)this + off, key.data(), key.size());
+        leveldb::EncodeFixed32((char*)this + off + VPAGE_KEY_SIZE, value.size());
+        memcpy((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+        offset(index) = off;
+        setBitMap(index);
+        return off;
     }
     void clrBitMap(int index){
-        assert(index < alloc_num);
-        bitmap = bitmap & (~(1ULL << index));
+        assert(VPAGE_START_INDEX <= index && index < capacity());
+        assert(getBitMap(index));
+        nums()--;
+        size_t entryIndex = index / ONE_META_ENTRY_NUM;
+        size_t metaIndex = index % ONE_META_ENTRY_NUM;
+        meta[entryIndex].bitmap &= (~(1ULL << metaIndex));
+    }
+    void setBitMap(int index){
+        // assert(VPAGE_START_INDEX <= index && index < capacity());
+        assert(!getBitMap(index));
+        nums()++;
+        size_t entryIndex = index / ONE_META_ENTRY_NUM;
+        size_t metaIndex = index % ONE_META_ENTRY_NUM;
+        meta[entryIndex].bitmap |= (1ULL << metaIndex);
     }
 
     bool getBitMap(int index){
-        assert(index < alloc_num);
-        return (bitmap >> index) & 1;
+        // assert(VPAGE_START_INDEX <= index && index < capacity());
+        size_t entryIndex = index / ONE_META_ENTRY_NUM;
+        size_t metaIndex = index % ONE_META_ENTRY_NUM;
+        return (meta[entryIndex].bitmap >> metaIndex) & 1;
     }
 };
+
+// class vPage{
+// public:
+//     // 4 + 4 + 8 + 4 * n = 256
+//     uint32_t total_num;
+//     uint32_t alloc_num;
+//     uint64_t bitmap;
+//     uint32_t offset[LEAF_VALUE_NUM];
+//     char kvs[]; //4B size + value;
+//     char* getValueAddr(size_t index){
+//         assert(index < alloc_num);
+//         return (char *)((char*)this + offset[index]);
+//     }
+//     leveldb::Slice v(size_t index){
+//         char* start = (char *)((char*)this + offset[index]);
+//         uint32_t v_len = leveldb::DecodeFixed32(start);
+//         return leveldb::Slice(start + 4, v_len);
+//     }
+//     uint32_t setv(size_t index, uint32_t off, leveldb::Slice value){
+//         leveldb::EncodeFixed32((char*)this + off, value.size());
+//         memcpy((char*)this + 4 + off, value.data(), value.size());
+//         offset[index] = off;
+//         return off + 4 + value.size();
+//     }
+//     void clrBitMap(int index){
+//         assert(index < alloc_num);
+//         assert(getBitMap(index));
+//         bitmap = bitmap & (~(1ULL << index));
+//     }
+
+//     bool getBitMap(int index){
+//         assert(index < alloc_num);
+//         return (bitmap >> index) & 1;
+//     }
+// };
 
 /* ---------------------------------------------------------------------- */
 

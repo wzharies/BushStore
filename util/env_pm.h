@@ -21,28 +21,28 @@ constexpr const size_t log_size = 2ULL * 1024 * 1024 * 1024;
 class PMSequentialFile final : public SequentialFile {
  public:
   PMSequentialFile(const char* path, size_t poolSize = log_size) {
-    // if((pmemaddr = (char*)pmem_map_file(path, log_size, PMEM_FILE_CREATE, 666, &mapped_len, &is_pmem)) == NULL){
-    //   perror("pmem_map_file");
-    //   exit(1);
-    // }
-    // real_size = DecodeFixed64(pmemaddr);
-    // if(real_size > mapped_len){
-    //   perror("real size > mappped size");
-    //   exit(1);
-    // }
-    // cur_mmap_len += skipped;
+    if((pmemaddr = (char*)pmem_map_file(path, log_size, PMEM_FILE_CREATE, 666, &mapped_len, &is_pmem)) == NULL){
+      perror("pmem_map_file");
+      exit(1);
+    }
+    real_size = DecodeFixed64(pmemaddr);
+    if(real_size > mapped_len){
+      perror("real size > mappped size");
+      exit(1);
+    }
+    cur_mmap_len += skipped;
   }
 
   ~PMSequentialFile() override {
     if(pmemaddr != NULL){
-      // pmem_unmap(pmemaddr, mapped_len);
+      pmem_unmap(pmemaddr, mapped_len);
     }
     pmemaddr = NULL;
   }
 
   Status Read(size_t n, Slice* result, char* scratch) override {
-    *result = Slice();
-    return Status::OK();
+    // *result = Slice();
+    // return Status::OK();
     if(cur_mmap_len >= real_size && n){
       return Status::IOError("out of read size");
     }

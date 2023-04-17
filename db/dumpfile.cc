@@ -58,11 +58,11 @@ Status PrintLogContents(Env* env, const std::string& fname,
                         WritableFile* dst) {
   SequentialFile* file;
   Status s;
-  if(LOG_PM){
-    file = new PMSequentialFile(fname.c_str());
-  }else{
+  // if(LOG_PM){
+  //   file = new PMSequentialFile(fname.c_str());
+  // }else{
     s = env->NewSequentialFile(fname, &file);
-  }
+  // }
   if (!s.ok()) {
     return s;
   }

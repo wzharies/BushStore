@@ -190,13 +190,13 @@ std::vector<std::vector<void *>> lbtree::pickInput(int page_count, int* index_st
             if(page_count <= pnum[1] - start_pos + 1){
                 short end_pos = start_pos + page_count - 1;
                 kPage* page = (kPage*)((bnode *)parray[1])->ch(end_pos);
-                *end = page->max_key;
+                *end = page->maxRawKey();
                 break;
                 //goto inner_done2;
             }else{
                 short end_pos = pnum[1];
                 kPage* page = (kPage*)((bnode *)parray[1])->ch(end_pos);
-                *end = page->max_key;
+                *end = page->maxRawKey();
             }
             page_count -= (pnum[1] - start_pos + 1);
             start_pos = 1;
@@ -1322,7 +1322,7 @@ void *lbtree::lookup(key_type key, int *pos)
     int c;
 #endif
 
-    unsigned char key_hash = hashcode1B(key);
+    uint16_t key_hash = hashcode2B(key);
     int ret_pos;
 
 Again1:
@@ -1394,11 +1394,11 @@ Again1:
     LEAF_PREF(kp);
 #endif
     // if the lock bit is set, abort
-    if (kp->lock)
-    {
-        // _xabort(2);
-        goto Again1;
-    }
+    // if (kp->lock)
+    // {
+    //     // _xabort(2);
+    //     goto Again1;
+    // }
     uint64_t ret_addr;
     // TODO,可能出现hash碰撞？还需要对比Key是否相同
     for(int i = 0; i < kp->nums; i++){

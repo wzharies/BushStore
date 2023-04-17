@@ -25,7 +25,7 @@ WRITE10G() {
     value_size=1000
     num_thread=1
     num_kvs=$((10*$MB))
-    write_buffer_size=$((100*$MB))
+    write_buffer_size=$((4*$MB))
     max_file_size=$((100*$MB))
     pm_size=$((20*$GB))
     bucket_nums=$((4*$MB)) # bucket_nums * 4 > nums_kvs
@@ -41,12 +41,34 @@ WRITE80G_FLUSHSSD() {
     bucket_nums=$((8*$MB)) # bucket_nums * 4 > nums_kvs
     flush_ssd=1
 }
+WRITE80G() {
+    leveldb_path=$pm_path;
+    value_size=1000
+    num_thread=1
+    num_kvs=$((80*$MB))
+    write_buffer_size=$((20*$MB))
+    max_file_size=$((1024*$MB))
+    pm_size=$((160*$GB))
+    bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
+    use_pm=1
+}
+WRITE80G-4K() {
+    leveldb_path=$pm_path;
+    value_size=4096
+    num_thread=1
+    num_kvs=$((20*$MB))
+    write_buffer_size=$((5*$MB))
+    max_file_size=$((1024*$MB))
+    pm_size=$((160*$GB))
+    bucket_nums=$((8*$MB)) # bucket_nums * 4 > nums_kvs
+    use_pm=1
+}
 WRITE100G() {
     leveldb_path=$pm_path;
     value_size=1000
     num_thread=1
     num_kvs=$((100*$MB))
-    write_buffer_size=$((1024*$MB))
+    write_buffer_size=$((40*$MB))
     max_file_size=$((1024*$MB))
     pm_size=$((200*$GB))
     bucket_nums=$((40*$MB)) # bucket_nums * 4 > nums_kvs
@@ -84,7 +106,7 @@ MAKE() {
 
 SETUP
 MAKE
-WRITE10G
+WRITE80G-4K
 cd ..
 $APP_PREFIX $db_bench/db_bench --benchmarks=$benchmarks --num=$num_kvs \
 --value_size=$value_size --write_buffer_size=$write_buffer_size --max_file_size=$max_file_size \

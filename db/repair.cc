@@ -158,11 +158,11 @@ class Repairer {
     std::string logname = LogFileName(dbname_, log);
     SequentialFile* lfile;
     Status status;
-    if(LOG_PM){
-      lfile = new PMSequentialFile(logname.c_str());
-    }else{
+    // if(LOG_PM){
+    //   lfile = new PMSequentialFile(logname.c_str());
+    // }else{
       status = env_->NewSequentialFile(logname, &lfile);
-    }
+    // }
     if (!status.ok()) {
       return status;
     }
