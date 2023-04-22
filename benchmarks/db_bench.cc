@@ -864,13 +864,7 @@ class Benchmark {
     Iterator* iter = db_->NewIterator(ReadOptions());
     int i = 0;
     int64_t bytes = 0;
-    key_type lastKey = -1;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
-      key_type key = DecodeDBBenchFixed64(iter->key().data());
-      if(lastKey + 1 != key){
-        printf("last key : %lu current key: %lu\n", lastKey, key);
-      }
-      lastKey = key;
       bytes += iter->key().size() + iter->value().size();
       thread->stats.FinishedSingleOp();
       ++i;

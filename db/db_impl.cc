@@ -2101,7 +2101,7 @@ Status DBImpl:: DoCompactionWork(CompactionState* compact) {
   }
 
   Iterator* input = versions_->MakeInputIterator(compact->compaction);
-  MergingIterator *mergeIterator = static_cast<MergingIterator*>(input);
+  // MergingIterator *mergeIterator = static_cast<MergingIterator*>(input);
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
@@ -2301,7 +2301,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   mutex_l1_.unlock();
   versions_->current()->AddIterators(options, &list);
   Iterator* internal_iter =
-      NewMergingIterator(&internal_comparator_, &list[0], list.size(),nullptr);
+      NewMergingIterator(&internal_comparator_, &list[0], list.size());
   versions_->current()->Ref();
 
   IterState* cleanup = new IterState(&mutex_, mem_, imm_, versions_->current());

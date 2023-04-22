@@ -1287,33 +1287,19 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
-  //int files_num = c->inputs_[0].size() + c->inputs_[1].size();
   const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
   Iterator** list = new Iterator*[space];
-  uint64_t* levels = new uint64_t[space];
-
   int num = 0;
-  int files_cnt = 0;
-  // for (int which = 0; which < 2; which++) {
-  //   const std::vector<FileMetaData*>& files = c->inputs_[which];
-  //   for (size_t i = 0; i < files.size(); i++) {
-  //     list[files_cnt] = table_cache_->NewIterator(options, files[i]->number, files[i]->file_size);
-  //     levels[files_cnt++] = files[i]->number;
-  //   }
-  // }
-
   for (int which = 0; which < 2; which++) {
     if (!c->inputs_[which].empty()) {
       if (c->level() + which == 0) {
         const std::vector<FileMetaData*>& files = c->inputs_[which];
         for (size_t i = 0; i < files.size(); i++) {
-          levels[num] = files[i]->number;
           list[num++] = table_cache_->NewIterator(options, files[i]->number,
                                                   files[i]->file_size);
         }
       } else {
         // Create concatenating iterator for the files from this level
-        levels[num] = c->level() + which;
         list[num++] = NewTwoLevelIterator(
             new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
             &GetFileIterator, table_cache_, options);
@@ -1321,8 +1307,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
     }
   }
   assert(num <= space);
-  //assert(files_cnt == files_num);
-  Iterator* result = NewMergingIterator(&icmp_, list, num, levels);
+  Iterator* result = NewMergingIterator(&icmp_, list, num);
   delete[] list;
   return result;
 }

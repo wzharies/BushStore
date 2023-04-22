@@ -227,8 +227,8 @@ public:
     // uint64_t alt : 1;
     uint64_t nums;
     uint16_t finger[LEAF_KEY_NUM]; //指纹
-    uint32_t pointer[LEAF_KEY_NUM]; //vPage地址，4k对齐，后12位不存储
     uint16_t index[LEAF_KEY_NUM]; //在vpage的第几个
+    uint32_t pointer[LEAF_KEY_NUM]; //vPage地址，4k对齐，后12位不存储
     char keys[];
     key_type rawK(size_t index){
         return DecodeDBBenchFixed64(keys + index * 16);

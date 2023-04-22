@@ -14,6 +14,7 @@
 #include "pm_mem_alloc.h"
 #include "libpmem.h"
 #include "util/global.h"
+#include "db/dbformat.h"
 
 namespace leveldb {
 
@@ -184,9 +185,6 @@ void PMTableBuilder::add(const Slice& key, uint16_t finger, uint32_t pointer, ui
     // key_count_++;
     key_type key64 = DecodeDBBenchFixed64(key.data());
     assert(max_key_ <= key64);
-    if(key64 == 2738038ULL){
-        printf("temp\n");
-    }
     key_buf_->finger[key_buf_->nums] = finger;
     key_buf_->pointer[key_buf_->nums] = pointer;
     key_buf_->setk(key_buf_->nums, key);

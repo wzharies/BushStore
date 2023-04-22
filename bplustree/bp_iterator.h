@@ -120,9 +120,6 @@ public:
   // the iterator.
   // REQUIRES: Valid()
   Slice key()  const override {
-    if(curPage_->rawK(curIndex) == 2738038ULL){
-      printf("found 2738038\n");
-    }
     return curPage_->k(curIndex);
   }
 
