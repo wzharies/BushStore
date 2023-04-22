@@ -25,7 +25,7 @@ WRITE10G() {
     value_size=1000
     num_thread=1
     num_kvs=$((10*$MB))
-    write_buffer_size=$((4*$MB))
+    write_buffer_size=$((3*$MB))
     max_file_size=$((100*$MB))
     pm_size=$((20*$GB))
     bucket_nums=$((4*$MB)) # bucket_nums * 4 > nums_kvs
@@ -106,7 +106,7 @@ MAKE() {
 
 SETUP
 MAKE
-WRITE80G-4K
+WRITE10G
 cd ..
 $APP_PREFIX $db_bench/db_bench --benchmarks=$benchmarks --num=$num_kvs \
 --value_size=$value_size --write_buffer_size=$write_buffer_size --max_file_size=$max_file_size \

@@ -86,7 +86,7 @@ class MemTable {
   ~MemTable();  // Private since only Unref() should be used to delete it
 
   KeyComparator comparator_;
-  vPageWrite write_;
+  vPageWriteDirect write_;
   int refs_;
   Arena arena_;
   Table table_;

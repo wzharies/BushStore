@@ -54,15 +54,15 @@ void* PMTableBuilder::mallocKpage(){
     }
 }
 
-void* PMTableBuilder::mallocVpage(){
-    // if(node_mem_ != nullptr){
-    //     void* ret = mallocVpages_.back();
-    //     mallocVpages_.pop_back();
-    //     return ret;
-    // }else{
-        return pm_alloc_->mallocPage(value_t);
-    // }
-}
+// void* PMTableBuilder::mallocVpage(){
+//     if(node_mem_ != nullptr){
+//         void* ret = mallocVpages_.back();
+//         mallocVpages_.pop_back();
+//         return ret;
+//     }else{
+//         return pm_alloc_->mallocPage(value_t);
+//     }
+// }
 
 void PMTableBuilder::initPreMalloc(uint64_t kvNums){
     int kPageCount = (kvNums + LEAF_KEY_NUM - 1) / LEAF_KEY_NUM;
@@ -105,19 +105,26 @@ PMTableBuilder::~PMTableBuilder(){
 
 void PMTableBuilder::flush_kpage(){
     // kPage* page = pm_alloc_->palloc(key_offset_);
-    kPage* page = (kPage*)mallocKpage();
+    kPage* new_page = (kPage*)mallocKpage();
+    if(last_kpage_ != nullptr){
+        last_kpage_->setNext(new_page);
+    }
+    if(firstPage == nullptr){
+        firstPage = new_page;
+    }
+    last_kpage_ = new_page;
     // used_pm_ += pm_alloc_->kPage_size_;
-    pages[0].push_back(page);
+    pages[0].push_back(new_page);
     if(pm_alloc_->options_.use_pm_){
-        pmem_memcpy_persist(page, key_buf_, key_offset_);
+        pmem_memcpy_persist(new_page, key_buf_, key_offset_);
     }else {
-        memcpy(page, key_buf_, key_offset_);
+        memcpy(new_page, key_buf_, key_offset_);
     }
     kPage_count_++;
     memset(key_buf_, 0, key_offset_);
     key_offset_ = 256;
-    key_type lastKey = page->rawK(0);
-    Pointer8B lastAddr = (void*)page;
+    key_type lastKey = new_page->rawK(0);
+    Pointer8B lastAddr = (void*)new_page;
     for(int i = 1; i < 32;i++){
         max_level_ = std::max(max_level_, i);
         if(leftPages[i] == nullptr){
@@ -177,6 +184,9 @@ void PMTableBuilder::add(const Slice& key, uint16_t finger, uint32_t pointer, ui
     // key_count_++;
     key_type key64 = DecodeDBBenchFixed64(key.data());
     assert(max_key_ <= key64);
+    if(key64 == 2738038ULL){
+        printf("temp\n");
+    }
     key_buf_->finger[key_buf_->nums] = finger;
     key_buf_->pointer[key_buf_->nums] = pointer;
     key_buf_->setk(key_buf_->nums, key);
@@ -233,25 +243,32 @@ void PMTableBuilder::add(const Slice& key, const Slice& value){
     add(key, value, hashcode1B(DecodeDBBenchFixed64(key.data())));
 }
 
-std::vector<std::vector<void *>> PMTableBuilder::finish(std::shared_ptr<lbtree> &tree){
+std::tuple<std::vector<std::vector<void *>>, kPage*, kPage*> PMTableBuilder::finish(std::shared_ptr<lbtree> &tree){
     //只要不为空就需要进行存储
     key_type lastKey = 0;
     Pointer8B lastAddr = Pointer8B(0);
     if(key_buf_->nums != 0){
         key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
-        kPage* page = (kPage*)mallocKpage();;
+        kPage* new_page = (kPage*)mallocKpage();
+        lastPage = new_page;
+        if (last_kpage_ != nullptr) {
+            last_kpage_->setNext(new_page);
+        }
+        last_kpage_ = new_page;
         // used_pm_ += pm_alloc_->kPage_size_;
-        pages[0].push_back(page);
+        pages[0].push_back(new_page);
         if(pm_alloc_->options_.use_pm_){
-            pmem_memcpy_persist(page, key_buf_, key_offset_);
+            pmem_memcpy_persist(new_page, key_buf_, key_offset_);
         }else {
-            memcpy(page, key_buf_, key_offset_);
+            memcpy(new_page, key_buf_, key_offset_);
         }
         kPage_count_++;
         // memset(key_buf_, 0, key_offset_);
         // key_offset_ = 0;
-        lastKey = page->rawK(0);
-        lastAddr = Pointer8B(page);
+        lastKey = new_page->rawK(0);
+        lastAddr = Pointer8B(new_page);
+    }else{
+        lastPage = last_kpage_;
     }
 
     for(int i = 1; i <= max_level_;i++){
@@ -298,7 +315,7 @@ std::vector<std::vector<void *>> PMTableBuilder::finish(std::shared_ptr<lbtree> 
     assert(pages[max_level_ + 1].size() == 0);
     pages.resize(max_level_ + 1);
     assert(pages.back().size() == 1);
-    return pages;
+    return std::make_tuple(pages, firstPage, lastPage);
 }
 void PMTableBuilder::setMaxKey(const Slice& key){
     max_key_ = DecodeDBBenchFixed64(key.data());

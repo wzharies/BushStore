@@ -74,7 +74,7 @@ static int FLAGS_reads = -1;
 static int FLAGS_threads = 1;
 
 // Size of each value
-static int FLAGS_value_size = 1000;
+static int FLAGS_value_size = 4096;
 
 // Arrange to generate values that shrink to this fraction of
 // their original size after compression
@@ -125,11 +125,11 @@ static const char* FLAGS_db = "/mnt/pmem0.1/pm_test";
 
 static char* PM_PATH = nullptr;
 // static size_t VALUE_SIZE = 4096;
-static uint64_t PM_SIZE = 20ULL * 1024 * 1024 * 1024;
+static uint64_t PM_SIZE = 80ULL * 1024 * 1024 * 1024;
 static uint64_t EXTENT_SIZE = 128 * 1024 * 1024;
 static bool USE_PM = true;
 static bool FLUSH_SSD=false;
-static uint64_t BUCKET_NUMS = 4 * 1024 * 1024;
+static uint64_t BUCKET_NUMS = 16 * 1024 * 1024;
 
 namespace leveldb {
 
@@ -864,13 +864,22 @@ class Benchmark {
     Iterator* iter = db_->NewIterator(ReadOptions());
     int i = 0;
     int64_t bytes = 0;
+    key_type lastKey = -1;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
+      key_type key = DecodeDBBenchFixed64(iter->key().data());
+      if(lastKey + 1 != key){
+        printf("last key : %lu current key: %lu\n", lastKey, key);
+      }
+      lastKey = key;
       bytes += iter->key().size() + iter->value().size();
       thread->stats.FinishedSingleOp();
       ++i;
     }
     delete iter;
     thread->stats.AddBytes(bytes);
+    // char msg[100];
+    // std::snprintf(msg, sizeof(msg), "found %d", i);
+    printf("found :%d kv\n", i);
   }
 
   void ReadReverse(ThreadState* thread) {
@@ -900,6 +909,10 @@ class Benchmark {
         // if(k == k_temp)
         //   found++;
       }
+      // else{
+      //   printf("%d not found.\n", k);
+      //   db_->Get(options, key.slice(), &value).ok();
+      // }
       thread->stats.FinishedSingleOp();
     }
     std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
@@ -926,6 +939,9 @@ class Benchmark {
         else
           wrong++;
       }
+      // else{
+      //   printf("%d not found.\n", k);
+      // }
       thread->stats.FinishedSingleOp();
     }
     std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;

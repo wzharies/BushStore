@@ -241,6 +241,12 @@ public:
         assert(key.size() == 16);
         memcpy(keys + index * 16, key.data(), 16);
     }
+    kPage* nextPage(){
+        return (kPage*)next;
+    }
+    void setNext(void* p){
+        next = (uint64_t)p;
+    }
     bool isEqual(size_t index, const key_type& key){
         return key == DecodeDBBenchFixed64(keys + index * 16);
     }
@@ -286,14 +292,18 @@ struct vPage{
         size_t metaIndex = index % ONE_META_ENTRY_NUM;
         return meta[entryIndex].offset[metaIndex];
     }
+    void setNext(void* next){
+        *(uint64_t*)(meta[0].offset + 2) = (uint64_t)next;
+    }
     void* next(){
-        return (void*)(*(uint64_t*)(meta[0].offset + 1));
+        return (void*)(*(uint64_t*)(meta[0].offset + 2));
     }
     // bool isFull(){
     //     return false;
     // }
     char* getValueAddr(size_t index){
-        assert(VPAGE_START_INDEX <= index && index < capacity());
+        assert(VPAGE_START_INDEX <= index);
+        // assert(VPAGE_START_INDEX <= index && index < capacity());
         size_t entryIndex = index / ONE_META_ENTRY_NUM;
         size_t metaIndex = index % ONE_META_ENTRY_NUM;
         return (char*)((char*)this + meta[entryIndex].offset[metaIndex]);
@@ -301,9 +311,10 @@ struct vPage{
     leveldb::Slice v(size_t index){
         char* start = getValueAddr(index);
         uint32_t v_len = leveldb::DecodeFixed32(start + VPAGE_KEY_SIZE);
+        // assert(v_len == 1000);
         return leveldb::Slice(start + VPAGE_KEY_SIZE + 4, v_len);
     }
-    bool isFull(int off, size_t index){
+    bool isFull(int off, int index){
         if(256 * (index / 62 + 1) > off){
             return true;
         }
@@ -324,6 +335,7 @@ struct vPage{
     void clrBitMap(int index){
         assert(VPAGE_START_INDEX <= index && index < capacity());
         assert(getBitMap(index));
+        assert(nums() > 0);
         nums()--;
         size_t entryIndex = index / ONE_META_ENTRY_NUM;
         size_t metaIndex = index % ONE_META_ENTRY_NUM;
@@ -331,7 +343,7 @@ struct vPage{
     }
     void setBitMap(int index){
         // assert(VPAGE_START_INDEX <= index && index < capacity());
-        assert(!getBitMap(index));
+        // assert(!getBitMap(index));
         nums()++;
         size_t entryIndex = index / ONE_META_ENTRY_NUM;
         size_t metaIndex = index % ONE_META_ENTRY_NUM;
@@ -435,7 +447,8 @@ public: // root and level
     treeMeta *tree_meta;
     uint32_t fileNumber = 0;
     std::vector<std::vector<void*>> needFreeNodePages;
-    std::vector<void*> needFreeKPages;
+    std::vector<char*> needFreeKPages;
+    std::vector<char*> needFreeVPages;
     PMMemAllocator *alloc;
     // std::atomic<int> reader_count = 0;
 
@@ -470,9 +483,11 @@ public:
         }
         //如果是L0或者L1的kpage，需要一个个释放掉
         for (auto& kpage : needFreeKPages) {
-            alloc->freePage((char*)kpage, key_t);
+            alloc->freePage(kpage, key_t);
         }
-
+        for (auto& vpage : needFreeVPages) {
+            alloc->freePage(vpage, value_t);
+        }
         delete tree_meta;
     }
 
@@ -484,6 +499,7 @@ public:
     }
 
     void reverseAndCheck();
+    void checkIterator();
 
 // private:
 //     int bulkloadSubtree(keyInput *input, int start_key, int num_key,
@@ -542,8 +558,9 @@ public:
     }
     void* lookup(key_type key, int *pos);
     void buildTree(leveldb::Iterator* iter);
+    kPage* getKpage(key_type key);
     std::vector<std::vector<void *>> pickInput(int page_count, int* index_start_pos, key_type* start, key_type* end);
-    std::vector<std::vector<void *>> getOverlapping(key_type start, key_type end, int* index_start_pos, int* page_count, key_type* ret_start, key_type* ret_end);
+    std::vector<std::vector<void *>> getOverlapping(key_type start, key_type end, int* index_start_pos, int* page_count, key_type* ret_start, key_type* ret_end, kPage*& kBegin, kPage*& kEnd);
     std::vector<std::vector<void *>> getOverlappingMulTask(std::vector<key_type> starts, key_type* begin, key_type* end, std::vector<int>& page_indexs, std::vector<int>& entry_indexs, std::vector<int>& page_counts, std::vector<int>& sst_index, key_type& ret_start, key_type& ret_end, key_type& new_begin);
     std::vector<std::vector<void *>> getOverlappingMulTask(key_type start_key, key_type end_key, int sst_count, key_type sst_start, key_type sst_end, key_type &new_start_key, int sst_page_index, int sst_page_end_index);
     void rangeDelete(std::vector<std::vector<void*>>& pages, key_type start, key_type end);

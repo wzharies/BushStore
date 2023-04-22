@@ -41,8 +41,7 @@
 #include "bplustree/bp_iterator.h"
 #include "bplustree/bp_merge_iterator.h"
 
-// #define MY_DEBUG
-
+#define MY_DEBUG
 #define DEBUG_PRINT
 #define CUCKOO_FILTER
 #define CAL_TIME
@@ -565,6 +564,11 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
         count++;
         auto [pointer, index] = iter->valuePointer();
         assert(index >= 4);
+        // auto check = [&](uint16_t index, uint32_t pointer){
+        //     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer) << 12);
+        //     assert(addr->v(index).size() == 4096);
+        // };
+        // check(index, pointer);
         pb->add(key, pointer, index);
         // pb->add(key, iter->value());
 #ifdef CUCKOO_FILTER
@@ -582,6 +586,10 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
       mutex_l0_.lock();
       Table_L0_.push_back(tree);
       mutex_l0_.unlock();
+
+#ifdef MY_DEBUG
+      tree->checkIterator();
+#endif
       // int i;
       // for(i = 0; i < Table_L0_.size(); i++){
       //   if(Table_L0_[i]->tree_meta->min_key > tree->tree_meta->min_key){
@@ -601,6 +609,7 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   }
 
   delete iter;
+
 #ifdef CAL_TIME
   imm_micros = env_->NowMicros() - start_micros;
 #endif
@@ -944,16 +953,19 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
     return Status::OK();
   }
   key_type maxKey = Table_L0_Merge[0]->tree_meta->max_key;
-  std::vector<BP_Iterator*> its;  // need delete
+  std::vector<IteratorBTree*> its;  // need delete
   key_type minKey = Table_L0_Merge[0]->tree_meta->min_key;
   key_type tree2_start;
   key_type tree2_end;
+  kPage* kBegin = nullptr;
+  kPage* kEnd = nullptr;
   for (int i = 0; i < max_count; i++) {
     maxKey = std::max(maxKey, Table_L0_Merge[i]->tree_meta->max_key);
     minKey = std::min(minKey, Table_L0_Merge[i]->tree_meta->min_key);
-    its.push_back(new BP_Iterator(pmAlloc_, Table_L0_Merge[i].get(),
-                                  Table_L0_Merge[i]->tree_meta->pages, 1,
-                                  Table_L0_Merge[i]->tree_meta->kPage_count));
+    its.push_back(new BP_Iterator_Read(Table_L0_Merge[i], pmAlloc_, false));
+    // its.push_back(new BP_Iterator(pmAlloc_, Table_L0_Merge[i].get(),
+    //                               Table_L0_Merge[i]->tree_meta->pages, 1,
+    //                               Table_L0_Merge[i]->tree_meta->kPage_count));
   }
   std::shared_ptr<lbtree> tree2 = nullptr;
   std::vector<std::vector<void*>> pages2;
@@ -965,14 +977,20 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
     // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
     pages2 =
         tree2->getOverlapping(minKey, maxKey, &index_start_pos2,
-                              &output_page_count, &tree2_start, &tree2_end);
+                              &output_page_count, &tree2_start, &tree2_end, kBegin, kEnd);
     // std::vector<std::vector<bnode*>> pages3;
-    BP_Iterator* it2 = new BP_Iterator(pmAlloc_, tree2.get(), pages2[1],
-                                       index_start_pos2, output_page_count);
+    // BP_Iterator* it2 = new BP_Iterator(pmAlloc_, tree2.get(), pages2[1],
+    //                                    index_start_pos2, output_page_count);
+    BP_Iterator_Trim *it2 = new BP_Iterator_Trim(pmAlloc_, tree2.get(), pages2[1], 0);
+    it2->setKeyStartAndEnd(minKey, maxKey + 1, user_comparator());
+    if(maxKey == UINT64_MAX){
+      it2->setEndEmpty();
+    }
     its.push_back(it2);
   } else {
   }
   BP_Merge_Iterator* input = new BP_Merge_Iterator(its, user_comparator());
+  input->SeekToFirst();
 
   PMTableBuilder builder(pmAlloc_);
   ParsedInternalKey ikey;
@@ -1017,6 +1035,11 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
         input->clrValue();
       } else {
         // 重写到新的kPage，用旧的索引，kPage中的数据重写，vPage中的数据不动
+        // auto check = [&](uint16_t index, uint32_t pointer, Slice& key){
+        //   vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer) << 12);
+        //   assert(addr->v(index).size() == 1000);
+        // };
+        // check(input->index(), input->pointer(), key);
         builder.add(key, input->finger(), input->pointer(), input->index());
       }
     } else {
@@ -1027,7 +1050,7 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   }
   std::shared_ptr<lbtree> tree = nullptr;
   // 返回生成的kPage的地址,还有最大最小的key。（最好直接返回子树），同时让这颗子树提供服务
-  std::vector<std::vector<void*>> pages3 = builder.finish(tree);
+  auto [pages3, firstPage, lastPage] = builder.finish(tree);
 
   // replace指定范围的B-Tree的索引和kPage,
   // 自底向上（不会死锁，锁用一个释放一个）
@@ -1049,22 +1072,31 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
     } else {
       Table_LN_.push_back(tree);
     }
-#ifdef MY_DEBUG
-    Table_LN_[0]->reverseAndCheck();
-#endif
+    if(kBegin != nullptr){
+      // assert(kBegin->maxRawKey() < firstPage->minRawKey());
+      kBegin->setNext(firstPage);
+    }
+    if(kEnd != nullptr){
+      // assert(lastPage->maxRawKey() < kEnd->minRawKey());
+      lastPage->setNext(kEnd);
+    }
   }
   // 删除iterator
   if (tree2 != nullptr) {
-    its.back()->releaseKpage();
+    ((BP_Iterator_Trim*)its.back())->releaseKVpage();
     delete its.back();
     its.pop_back();
   }
   for (int i = 0; i < its.size(); i++) {
-    its[i]->movekPageTolbtree();
+    its[i]->movePage();
     delete its[i];
   }
   delete input;
 
+#ifdef MY_DEBUG
+    Table_LN_[0]->reverseAndCheck();
+    Table_LN_[0]->checkIterator();
+#endif
   // 释放L0的资源
   // 1. delete L0 table
   mutex_l0_.lock();
@@ -1587,6 +1619,8 @@ Status DBImpl::CompactionLevel1(){
   key_type tree2_end;
   key_type start_key;
   key_type end_key;
+  kPage* kBegin;
+  kPage* kEnd;
   std::vector<std::vector<void*>> pages2;
   Iterator* it1 = nullptr;
   if(files.empty()){
@@ -1595,7 +1629,7 @@ Status DBImpl::CompactionLevel1(){
     // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
     pages2 =
         tree2->getOverlapping(tree2->tree_meta->min_key, tree2->tree_meta->max_key, &index_start_pos2,
-                              &output_page_count, &tree2_start, &tree2_end);
+                              &output_page_count, &tree2_start, &tree2_end, kBegin, kEnd);
     // std::vector<std::vector<bnode*>> pages3;
     it1 = new BP_Iterator(pmAlloc_, tree2.get(), pages2[1],
                                        index_start_pos2, output_page_count, true);
@@ -1613,7 +1647,7 @@ Status DBImpl::CompactionLevel1(){
     end_key = c->largest.empty() ? tree2->tree_meta->max_key : DecodeDBBenchFixed64(c->largest.data()) - 1;
     pages2 =
         tree2->getOverlapping(start_key, end_key, &index_start_pos2,
-                              &output_page_count, &tree2_start, &tree2_end);
+                              &output_page_count, &tree2_start, &tree2_end, kBegin, kEnd);
     // std::vector<std::vector<bnode*>> pages3;
     it1 = new BP_Iterator(pmAlloc_, tree2.get(), pages2[1],
                                        index_start_pos2, output_page_count, true);
@@ -1780,10 +1814,14 @@ Status DBImpl::CompactionLevel1(){
       }
 
     }
-    ((BP_Iterator*)it1)->releaseKpage();
+    ((BP_Iterator*)it1)->releaseKVpage();
+    if(kBegin != nullptr){
+      kBegin->setNext(kEnd);
+    }
 #ifdef MY_DEBUG
   if(!Table_LN_.empty()){
     Table_LN_[0]->reverseAndCheck();
+    Table_LN_[0]->checkIterator();
   }
 #endif
   }
@@ -2250,6 +2288,17 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
     list.push_back(imm_->NewIterator());
     imm_->Ref();
   }
+  mutex_l0_.lock();
+  for(int i = Table_L0_.size() - 1; i >=0 ;i--){
+    list.push_back(new BP_Iterator_Read(Table_L0_[i]));
+  }
+  mutex_l0_.unlock();
+  mutex_l1_.lock();
+    assert(Table_LN_.size() == 1 || Table_LN_.size() == 0);
+    if(!Table_LN_.empty()){
+      list.push_back(new BP_Iterator_Read(Table_LN_.back()));
+    }
+  mutex_l1_.unlock();
   versions_->current()->AddIterators(options, &list);
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size(),nullptr);
@@ -2288,6 +2337,7 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
   // 1. 读取L0中的tree
   uint32_t fileNumber = 0;
   bool isOnL0 = true;
+  bool isOnL1 = false;
 #ifdef CUCKOO_FILTER
   //TODO 有bug
   cuckoo_filter_->Get(key, &fileNumber);
@@ -2298,8 +2348,9 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
     if(fileNumber < trees.size()){
       value_addr = (char*)trees[fileNumber]->lookup(rawKey, &pos);
       if (value_addr != nullptr) {
-        value_length = leveldb::DecodeFixed32(value_addr);
-        *value = std::string(value_addr + 4, value_length);
+        value_length = leveldb::DecodeFixed32(value_addr + 8);
+        // assert(value_length = 1000);
+        *value = std::string(value_addr + 4 + 8, value_length);
         readStats_.readRight++;
         readStats_.readL0Found++;
         return Status::OK();
@@ -2318,12 +2369,12 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
   }else if(fileNumber < firstFileNumber){
     readStats_.readExpire++;
     isOnL0 = false;
+    isOnL1 = true;
   }
   // else{
   //   std::cout << "cuckoo_filter got wrong fileNumber : " << fileNumber << std::endl;
   // }
 #endif
-
   if(isOnL0){
     for (int i = 0; i < trees.size(); i++) {
 #ifdef CUCKOO_FILTER
@@ -2333,8 +2384,9 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
 #endif
       value_addr = (char*)trees[i]->lookup(rawKey, &pos);
       if (value_addr != nullptr) {
-        value_length = leveldb::DecodeFixed32(value_addr);
-        *value = std::string(value_addr + 4, value_length);
+        value_length = leveldb::DecodeFixed32(value_addr + 8);
+              // assert(value_length = 1000);
+        *value = std::string(value_addr + 4 + 8, value_length);
         readStats_.readL0Found++;
         return Status::OK();
       }
@@ -2350,12 +2402,30 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
     std::shared_ptr<lbtree> tree = Table_LN_[0];
     value_addr = (char*)Table_LN_[0]->lookup(rawKey, &pos);
     if (value_addr != nullptr) {
-      value_length = leveldb::DecodeFixed32(value_addr);
-      *value = std::string(value_addr + 4, value_length);
+      value_length = leveldb::DecodeFixed32(value_addr + 8);
+            // assert(value_length = 1000);
+      *value = std::string(value_addr + 4 + 8, value_length);
       readStats_.readL1Found++;
       return Status::OK();
     }else{
       // value_addr = (char*)Table_LN_[0]->lookup(rawKey, &pos);
+    }
+  }
+  if(isOnL1){
+    for (int i = 0; i < trees.size(); i++) {
+#ifdef CUCKOO_FILTER
+      if(i == fileNumber){
+        continue;
+      }
+#endif
+      value_addr = (char*)trees[i]->lookup(rawKey, &pos);
+      if (value_addr != nullptr) {
+        value_length = leveldb::DecodeFixed32(value_addr + 8);
+              // assert(value_length = 1000);
+        *value = std::string(value_addr + 4 + 8, value_length);
+        readStats_.readL0Found++;
+        return Status::OK();
+      }
     }
   }
   return Status::NotFound("");

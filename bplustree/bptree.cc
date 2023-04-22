@@ -88,6 +88,20 @@ void lbtree::reverseAndCheck() {
     }
 }
 
+void lbtree::checkIterator(){
+    kPage* page = getKpage(tree_meta->min_key);
+    assert(tree_meta->min_key <= page->minRawKey());
+    printf("check star : %lu", page->minRawKey());
+    kPage* nextKpage;
+    while(page->nextPage() != nullptr){
+        nextKpage = page->nextPage();
+        assert(page->maxRawKey() <= nextKpage->minRawKey());
+        page = nextKpage;
+    }
+    assert(page->maxRawKey() <= tree_meta->max_key);
+    printf(" end star : %lu\n", page->maxRawKey());
+}
+
 std::vector<std::vector<void *>> lbtree::pickInput(int page_count, int* index_start_pos, key_type* start, key_type* end)
 {
     // record the path from root to leaf
@@ -230,6 +244,87 @@ std::vector<std::vector<void *>> lbtree::pickInput(int page_count, int* index_st
     // _xend();
 
     return page_addr;
+}
+
+
+kPage* lbtree::getKpage(key_type key){
+    if(tree_meta->min_key > key || key > tree_meta->max_key){
+        return nullptr;
+    }
+    bnode *p;
+    kPage *kp = nullptr;
+    int i, t, m, b;
+#ifdef VAR_KEY
+    int c;
+#endif
+
+    uint16_t key_hash = hashcode2B(key);
+    int ret_pos;
+
+Again1:
+    // 1. RTM begin
+    // if (_xbegin() != _XBEGIN_STARTED)
+    //     goto Again1;
+
+    // 2. search nonleaf nodes
+    p = tree_meta->tree_root;
+
+    for (i = tree_meta->root_level; i > 0; i--)
+    {
+    #ifdef PREFETCH
+        // prefetch the entire node
+        NODE_PREF(p);
+    #endif
+        assert(p->lock() == 0 || p->lock() == 1);
+        // if the lock bit is set, abort
+        if (p->lock())
+        {
+            // _xabort(1);
+            goto Again1;
+        }
+
+        // binary search to narrow down to at most 8 entries
+        b = 1;
+        t = p->num();
+        while (b + 7 <= t)
+        {
+            m = (b + t) >> 1;
+        #ifdef VAR_KEY
+            c = vkcmp((char*)p->k(m), (char*)key);
+            if (c > 0)
+                b = m + 1;
+            else if (c < 0)
+                t = m - 1;
+        #else
+            if (key > p->k(m))
+                b = m + 1;
+            else if (key < p->k(m))
+                t = m - 1;
+        #endif
+            else
+            {
+                p = p->ch(m);
+                goto inner_done;
+            }
+        }
+
+        // sequential search (which is slightly faster now)
+        for (; b <= t; b++)
+        #ifdef VAR_KEY
+            if (vkcmp((char*)key, (char*)p->k(b)) > 0)
+                break;
+        #else
+            if (key < p->k(b))
+                break;
+        #endif
+        p = p->ch(b - 1);
+
+    inner_done:;
+    }
+
+    // 3. search leaf node
+    kp = (kPage *)p;
+    return kp;
 }
 
 std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
@@ -676,7 +771,7 @@ std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
     return page_addr;
 }
 
-std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type end, int* index_start_pos, int* page_count, key_type* ret_start, key_type* ret_end){
+std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type end, int* index_start_pos, int* page_count, key_type* ret_start, key_type* ret_end, kPage*& kBegin, kPage*& kEnd){
     // record the path from root to leaf
     // parray[level] is a node on the path
     // child ppos[level] of parray[level] == parray[level-1]
@@ -775,9 +870,34 @@ std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type
             page_addr[i].push_back((void *)parray[i]);
             // bnodes[i].push_back((bnode *)parray[i]);
         }
+        kBegin = nullptr;
+        kEnd = nullptr;
 
         *ret_start = ((bnode *)parray[1])->k(ppos[1]);
         *index_start_pos = ppos[1];
+        // assert(*ret_start <= start);
+        // 从头遍历
+        if(start <= tree_meta->min_key){
+            kBegin = nullptr;
+        // 当前kpage需要完全删除，找到上一个kPage
+        }else if(start == ((bnode *)parray[1])->k(ppos[1])){
+            if(ppos[1] > 1){
+                kBegin = ((bnode *)parray[1])->ch(ppos[1] - 1);
+            }else{
+                assert(start - 1 < start);
+                kBegin = getKpage(start - 1);
+                assert(kBegin != nullptr);
+                assert(kBegin->nextPage() == ((bnode *)parray[1])->ch(ppos[1]));
+            }
+        }else if(start > ((bnode *)parray[1])->k(ppos[1])){
+            kBegin = ((bnode *)parray[1])->ch(ppos[1]);
+        }else{
+            assert(false);
+        }
+
+        // if(*ret_start < start){
+        //     kBegin
+        // }
         //int start_pos = ppos[1];
         // return the result;
         while(true){
@@ -821,8 +941,13 @@ std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type
             }
         }
     inner_done2:;
+        if(end >= tree_meta->max_key){
+            kEnd = nullptr;
+        }else{
+            assert(end < end + 1);
+            kEnd = getKpage(end + 1);
+        }
     }
-    
     // 4. RTM commit
     // _xend();
 

@@ -7,8 +7,7 @@ namespace leveldb{
 class BP_Merge_Iterator{
 public:
     BP_Merge_Iterator();
-    BP_Merge_Iterator(std::vector<BP_Iterator*>& its, const Comparator* comparator) : its_(its), comparator_(comparator){
-        FindSmallest();
+    BP_Merge_Iterator(std::vector<IteratorBTree*>& its, const Comparator* comparator) : its_(its), comparator_(comparator){
     }
     ~BP_Merge_Iterator(){
         
@@ -16,7 +15,12 @@ public:
 
     bool Valid(){ return (current_ != nullptr);}
 
-    void SeekToFirst(){};
+    void SeekToFirst(){
+        for(auto& it : its_){
+            it->SeekToFirst();
+        }
+        FindSmallest();
+    };
 
     void SeekToLast(){};
 
@@ -60,9 +64,9 @@ public:
     }
 private:
     void FindSmallest(){
-        BP_Iterator* smallest = nullptr;
+        IteratorBTree* smallest = nullptr;
         for (int i = 0; i < its_.size(); i++) {
-            BP_Iterator* child = its_[i];
+            IteratorBTree* child = its_[i];
             if (child->Valid()) {
                 if (smallest == nullptr) {
                     smallest = child;
@@ -73,9 +77,9 @@ private:
         }
         current_ = smallest;
     }
-    std::vector<BP_Iterator*>& its_;
+    std::vector<IteratorBTree*>& its_;
     const Comparator* comparator_;
-    BP_Iterator* current_;
+    IteratorBTree* current_;
 };
 
 } // namespace leveldb
