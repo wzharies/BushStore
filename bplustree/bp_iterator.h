@@ -175,13 +175,13 @@ private:
 class BP_Iterator_Trim : public IteratorBTree {
  public:
   BP_Iterator_Trim();
-  BP_Iterator_Trim(PMMemAllocator* alloc, lbtree* tree1, std::vector<void*>& pages, int start_index_page = 0)
+  BP_Iterator_Trim(PMMemAllocator* alloc, lbtree* tree1, std::vector<void*>& pages, int start_index_page = 0, bool autoClearVpage = false)
       : alloc_(alloc),
         tree1_(tree1),
         pages_(pages),
         pos_index_(1),
         // kpage_count_(kpage_count),
-        // autoClearVpage(autoClearVpage),
+        autoClearVpage(autoClearVpage),
         cur_index_page_(start_index_page) {
   }
 
@@ -332,9 +332,9 @@ class BP_Iterator_Trim : public IteratorBTree {
   }
 
   void Next() override {
-    // if (autoClearVpage) {
-      // clrValue();
-    // }
+    if (autoClearVpage) {
+      clrValue();
+    }
     NextInternal();
   }
 
@@ -386,7 +386,7 @@ class BP_Iterator_Trim : public IteratorBTree {
   int pos_index_;  // bnode的索引
   int pos_data_;   // kpage内部的索引
   bool valid_ = false;
-  // bool autoClearVpage = false;
+  bool autoClearVpage = false;
   // 闭区间，由于getOverlap的精度只有bnode级别，但是但是多出的kpage不能在迭代器中生效，需要头尾做裁剪。
   bool needTrim = false;
   const Comparator* comparator_;

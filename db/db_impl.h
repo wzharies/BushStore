@@ -183,7 +183,7 @@ class DBImpl : public DB {
 
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
-  Status InstallCompactionResults(std::vector<CompactionState*> compacts);
+  Status InstallCompactionResults(std::vector<CompactionState*>& compacts);
   Status InstallCompactionResults(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
@@ -256,7 +256,7 @@ class DBImpl : public DB {
   std::condition_variable conVar_;
   std::mutex mergeMutex_;
   std::thread compactionThread_;
-  key_type new_start_key_ = -1;
+  key_type new_start_key_ = 0;
 public:
   ReadStats readStats_;
 };

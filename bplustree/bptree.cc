@@ -325,6 +325,7 @@ Again1:
             if (key < p->k(b))
                 break;
         #endif
+        if(b == 1) b++;
         p = p->ch(b - 1);
 
     inner_done:;
@@ -469,8 +470,8 @@ std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
         if sst_end > end_key. sst_end_index = -1.
         if sst_end_index != -1, we read more bnode.
         */
-        assert(start_key <= sst_start);
-        assert(sst_start <= sst_end);
+        // assert(start_key <= sst_start);
+        // assert(sst_start <= sst_end);
         while (true) {
             // 1. current bnode. bnode already in page_addr.
             key_type& begin = ((bnode*)parray[1])->kBegin();
@@ -518,14 +519,15 @@ std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
                 }
             }
             if (level == tree_meta->root_level + 1) {
+                new_start_key = tree_meta->max_key + 1;
                 break;
             }
         }
     inner_done2:;
-        if(end_key >= tree_meta->max_key){
+        if(new_start_key > tree_meta->max_key){
             kEnd = nullptr;
         }else{
-            assert(new_start_key != -1);
+            // assert(new_start_key != -1);
             kEnd = getKpage(new_start_key);
         }
     }
@@ -1560,6 +1562,9 @@ Again1:
             if (key < p->k(b))
                 break;
         #endif
+        if(b == 1){
+            return nullptr;
+        }
         p = p->ch(b - 1);
 
     inner_done:;

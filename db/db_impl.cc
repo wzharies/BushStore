@@ -847,6 +847,7 @@ bool DBImpl::isNeedGC(){
   return needGC;
 }
 
+constexpr double rate = 0.8;
 int DBImpl::PickCompactionPM(){
   double usage = pmAlloc_->getMemoryUsabe();
   int level = -1;
@@ -864,11 +865,11 @@ int DBImpl::PickCompactionPM(){
     level = 0;
   }
   if(options_.flush_ssd){
-    if(usage > 0.85){
+    if(usage > rate){
       level = 1;
       flushSSD = true;
     }
-  }else if(usage > 0.85){
+  }else if(usage > rate){
     level = 0;
     needGC = true;
   }
@@ -978,6 +979,9 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
     pages2 =
         tree2->getOverlapping(minKey, maxKey, &index_start_pos2,
                               &output_page_count, &tree2_start, &tree2_end, kBegin, kEnd);
+    if(kEnd != nullptr && kEnd->maxRawKey() < maxKey){
+      kEnd = kEnd->nextPage();
+    }
     // std::vector<std::vector<bnode*>> pages3;
     // BP_Iterator* it2 = new BP_Iterator(pmAlloc_, tree2.get(), pages2[1],
     //                                    index_start_pos2, output_page_count);
@@ -1244,16 +1248,16 @@ Status DBImpl::CompactionLevel1Concurrency(){
   struct Task{
     Iterator* it = nullptr;
     BP_Iterator_Trim* it2 = nullptr;
-    Iterator* it3 = nullptr;
+    // Iterator* it3 = nullptr;
     key_type begin;
     key_type end;
     int bnode_begin;
     std::vector<FileMetaData*> files;
     CompactionState* compaction;
     void set(key_type begin, key_type end, int b){
-      begin = begin;
-      end = end;
-      bnode_begin = b;
+      this->begin = begin;
+      this->end = end;
+      this->bnode_begin = b;
     }
   };
   std::vector<Task> tasks;
@@ -1275,7 +1279,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
     start_key = new_start_key_;
   }
   key_type end_key = c->largest.empty()
-                         ? tree->tree_meta->max_key
+                         ? tree->tree_meta->max_key + 1
                          : DecodeDBBenchFixed64(c->largest.data()) - 1;
 
   //sst的选择范围
@@ -1288,7 +1292,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
   }
   // key_type sst_start = DecodeDBBenchFixed64(c->sst_smallest.data());
   // key_type sst_end = DecodeDBBenchFixed64(c->sst_largets.data());
-  new_start_key_ = -1;
+  // new_start_key_ = -1;
   int sst_page_index;
   int sst_page_end_index;
   kPage* kBegin;
@@ -1301,7 +1305,11 @@ Status DBImpl::CompactionLevel1Concurrency(){
                                        sst_end, new_start_key_, sst_page_index,
                                        sst_page_end_index, kBegin, kEnd);
 
-  versions_->setCompactionPointer(new_start_key_, 2, c);
+  if(new_start_key_ > tree->tree_meta->max_key){
+    versions_->setCompactionPointer(0, 2, c);
+  }else{
+    versions_->setCompactionPointer(new_start_key_, 2, c);
+  }
 
   // 2. 切分任务
   std::vector<void*>& bnodes = pages2[1];
@@ -1312,6 +1320,11 @@ Status DBImpl::CompactionLevel1Concurrency(){
   key_type rangeBegin = writeSeq ? start_key : std::min(sst_start, start_key);
   // 整个范围结束的位置，主要是sst_end和bnode最大值中的最大值。
   key_type rangeEnd = writeSeq ? new_start_key_ : std::max(sst_end, new_start_key_);
+
+  if(new_start_key_ >= tree->tree_meta->max_key){
+    new_start_key_ = 0;
+  }
+
 
   auto fillTaskOverSST = [&](int start_index, int end_index, bool first) {
     for (int i = start_index; i < end_index; i += MAX_BNODE_NUM) {
@@ -1344,7 +1357,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
         }
       }
       BP_Iterator_Trim* it =
-          new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, i);
+          new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, i, true);
       // BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1,
       // INT_MAX, false, i);
       it->setKeyStartAndEnd(start, end, user_comparator());
@@ -1398,7 +1411,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
         begin_index = new_start_index;
       }
       BP_Iterator_Trim* it =
-          new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, begin_index);
+          new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, begin_index, true);
       // BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1,
       // INT_MAX, false, begin_index);
       key_type startK = starts[i];
@@ -1418,7 +1431,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
       tasks.back().it = NewMergingIterator(user_comparator(), its, 2);
       tasks.back().set(startK, starts[i + 1], begin_index);
       tasks.back().it2 = it;
-      tasks.back().it3 = it2;
+      // tasks.back().it3 = it2;
       if(new_start_index != -1){
         new_start_index = -1;
       }
@@ -1458,14 +1471,14 @@ Status DBImpl::CompactionLevel1Concurrency(){
   }else{
     if(writeSeq){
       BP_Iterator_Trim* it =
-        new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, 0);
+        new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, 0, true);
       it->setKeyStartAndEnd(rangeBegin, rangeEnd, user_comparator());
       tasks.push_back({.it = it});
-      tasks.back().set(rangeEnd, rangeEnd, 0);
+      tasks.back().set(rangeBegin, rangeEnd, 0);
       tasks.back().it2 = it;
     }else{
       BP_Iterator_Trim* it =
-          new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, 0);
+          new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, 0, true);
       // BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1,
       // INT_MAX, false, begin_index);
       it->setKeyStartAndEnd(rangeBegin, rangeEnd, user_comparator());
@@ -1476,7 +1489,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
       tasks.back().it = NewMergingIterator(user_comparator(), its, 2);
       tasks.back().set(rangeBegin, rangeEnd, 0);
       tasks.back().it2 = it;
-      tasks.back().it3 = it2;
+      // tasks.back().it3 = it2;
     }
   }
 
@@ -1484,7 +1497,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
   key_type lastEnd = 0;
   int lastIndex = 0;
   for(int i = 0; i < tasks.size(); i++){
-    printf("add task: [%ld, %ld), node count: %d, sst count: %zull", tasks[i].begin, tasks[i].end, tasks[i].bnode_begin, tasks[i].files.size());
+    printf("add task: [%ld, %ld), node count: %d, sst count: %zull\n", tasks[i].begin, tasks[i].end, tasks[i].bnode_begin, tasks[i].files.size());
     assert(lastEnd <= tasks[i].begin);
     assert(lastIndex <= tasks[i].bnode_begin);
     lastEnd = tasks[i].end;
@@ -1641,27 +1654,34 @@ Status DBImpl::CompactionLevel1Concurrency(){
   {
     std::lock_guard<std::mutex> lock(mutex_l1_);
     std::shared_ptr<lbtree> tree2 = Table_LN_[0];
-    tree2->rangeDelete(pages2, rangeBegin, rangeEnd);
-    if(rangeEnd >= tree2->tree_meta->max_key){
-      tree2->tree_meta->max_key = rangeBegin - 1;
-    }
-    if(rangeBegin <= tree2->tree_meta->min_key){
-      tree2->tree_meta->min_key = rangeEnd + 1;
+    tree2->rangeDelete(pages2, rangeBegin, rangeEnd - 1);
+    if(rangeEnd > tree2->tree_meta->max_key && rangeBegin <= tree2->tree_meta->min_key){
+      Table_LN_.clear();
+    }else{
+      if(rangeEnd > tree2->tree_meta->max_key){
+        tree2->tree_meta->max_key = rangeBegin - 1;
+      }
+      if(rangeBegin <= tree2->tree_meta->min_key){
+        tree2->tree_meta->min_key = rangeEnd;
+      }
     }
 
     for(int i = 0; i < tasks.size(); i++){
       tasks[i].it2->releaseKVpage();
-      delete tasks[i].it3;
-      delete tasks[i].it2;
-      delete tasks[i].it;
+      // delete tasks[i].it3;
+      // delete tasks[i].it2;
+      // if(tasks[i].it2 != tasks[i].it){
+        delete tasks[i].it;
+      // }
     }
 
-    if(kBegin != nullptr && kEnd != nullptr){
+    if(kBegin != nullptr){
       kBegin->setNext(kEnd);
     }
 #ifdef MY_DEBUG
   if(!Table_LN_.empty()){
     Table_LN_[0]->reverseAndCheck();
+    Table_LN_[0]->checkIterator();
   }
 #endif
   }
@@ -2141,7 +2161,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   }
   return s;
 }
-Status DBImpl::InstallCompactionResults(std::vector<CompactionState*> compacts){
+Status DBImpl::InstallCompactionResults(std::vector<CompactionState*>& compacts){
   mutex_.AssertHeld();
 
   // Add compaction outputs

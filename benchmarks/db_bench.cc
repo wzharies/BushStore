@@ -864,11 +864,18 @@ class Benchmark {
     Iterator* iter = db_->NewIterator(ReadOptions());
     int i = 0;
     int64_t bytes = 0;
+    // key_type lastKey = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
+      // key_type newkey = DecodeDBBenchFixed64(iter->key().data());
+      // if(newkey != lastKey + 1){
+      //   printf("%lu between %lu not fount!\n", lastKey, newkey);
+      // }
+      // lastKey = newkey;
       bytes += iter->key().size() + iter->value().size();
       thread->stats.FinishedSingleOp();
       ++i;
     }
+    // printf("endkey %lu", lastKey);
     delete iter;
     thread->stats.AddBytes(bytes);
     // char msg[100];
