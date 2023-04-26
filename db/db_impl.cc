@@ -1240,16 +1240,11 @@ Status DBImpl::CompactionLevel1Concurrency(){
   Compaction* c = versions_->PickCompaction();
   // CompactionState* compact = new CompactionState(c);
   std::vector<FileMetaData*> &files = c->inputs_[1];
-  // Iterator* input;
-  // int index_start_pos2 = 0;
-  // int output_page_count = 0;
-  // key_type tree2_start;
-  // key_type tree2_end;
-  // key_type start_key;
-  // key_type end_key;
   std::vector<std::vector<void*>> pages2;
   struct Task{
-    Iterator* it;
+    Iterator* it = nullptr;
+    BP_Iterator_Trim* it2 = nullptr;
+    Iterator* it3 = nullptr;
     key_type begin;
     key_type end;
     int bnode_begin;
@@ -1262,139 +1257,241 @@ Status DBImpl::CompactionLevel1Concurrency(){
     }
   };
   std::vector<Task> tasks;
+  
+  bool writeSeq = files.empty() ? true : false;
 
   // 如果sst，则每maxFileNumber个sst切分成一个任务
-  auto divideTask = [&](){
+  std::shared_ptr<lbtree> tree;
+  {
     std::lock_guard<std::mutex> lock(mutex_l1_);
-    std::shared_ptr<lbtree> tree = Table_LN_[0];
-    // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
-    key_type start_key = c->smallest.empty() ? tree->tree_meta->min_key : DecodeDBBenchFixed64(c->smallest.data()) + 1;
-    key_type end_key = c->largest.empty() ? tree->tree_meta->max_key : DecodeDBBenchFixed64(c->largest.data()) - 1;
-    key_type sst_start = DecodeDBBenchFixed64(c->sst_smallest.data());
-    key_type sst_end = DecodeDBBenchFixed64(c->sst_largets.data());
-    key_type new_start_key;
-    int sst_page_index;
-    int sst_page_end_index;
-    auto divideBnode = [&](){
-      std::vector<void*> &bnodes = pages2[1];
-      int new_start_index = -1;
-      auto fillTaskOverSST = [&](int start_index, int end_index, bool first){
-        for(int i = start_index; i < end_index; i += MAX_BNODE_NUM){
-          // if(end_index - i < MAX_BNODE_NUM / 5){
-          //   break;
-          // }
-          key_type start = ((bnode*)bnodes[i])->kBegin();
-          key_type end;
-          int bnode_count;
-          int next = i + MAX_BNODE_NUM;
-          // if(i + MAX_BNODE_NUM < end_index || next < end_index && end_index - next < MAX_BNODE_NUM / 5){
-          if(i + MAX_BNODE_NUM < end_index){
-            end = ((bnode*)bnodes[i + MAX_BNODE_NUM])->kBegin();
-            bnode_count = MAX_BNODE_NUM;
-          }else{
-            new_start_index = i;
-            // it is temp end, it is wrong.
-            if(first){
-              break;
-            }else{
-              end =(((bnode*)bnodes.back())->kEnd() + 1);
-              bnode_count = end_index - i;
-            }
-          }
-          BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1, INT_MAX, false, i);
-          it->setKeyStartAndEnd(start, end, user_comparator());
-          tasks.push_back({.it = it});
-          tasks.back().set(start, end, i);
-        }
-      };
-      auto fillTaskBySST = [&](){
-        //1. 记录sst的边界值
-        std::vector<key_type> starts;
-        for(int i = 0; i < files.size(); i += MAX_FILE_NUM){
-          starts.push_back(DecodeDBBenchFixed64(files[i]->smallest.Encode().data()));
-        }
-        if(files.size() % MAX_FILE_NUM <= MAX_FILE_NUM / 4 && starts.size() > 1){
-          starts.pop_back();
-        }
-        starts.push_back(DecodeDBBenchFixed64(files.back()->largest.Encode().data()) + 1);
-        
-        //2 获取边界值对应的index
-        int cur = 0;
-        int sst_index;
-        int last_index;
-        assert(starts.size() >=2 );
-        std::vector<int> start_index(-1, starts.size());
-        // int last = sst_page_end_index == -1 ? bnodes.size() : sst_page_end_index;
-        int first = sst_page_index == -1 ? 0 : sst_page_index;
-        for(int i = first; i < bnodes.size(); i++){
-          auto& b = ((bnode*)bnodes[i])->kBegin();
-          while (cur < starts.size() && starts[cur] < b) {
-            cur++;
-          }
-          if (cur >= starts.size()) {
-            break;
-          }
-          if (b <= starts[cur]) {
-            start_index[cur] = i;
-          }
-        }
-        //3. 生成对应的task
-        for(int i = 0; i < start_index.size() - 1; i++){
-          int begin_index = start_index[i] == -1 ? 0 : start_index[i];
-          if(starts[i + 1] < ((bnode*)bnodes[begin_index])->kBegin()){
-            continue;
-          }
-          BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1, INT_MAX, false, begin_index);
-          it->setKeyStartAndEnd(starts[i], starts[i+1], user_comparator());
-          tasks.push_back({});
-          std::vector<FileMetaData*>::iterator endIt = (i + 1) * MAX_FILE_NUM < files.size() ? files.begin() + (i + 1) * MAX_FILE_NUM : files.end();
-          tasks.back().files = std::vector<FileMetaData*>(files.begin() + i * MAX_FILE_NUM, endIt); 
-          Iterator* it2 = versions_->getTwoLevelIterator(tasks.back().files);
-          Iterator* its[2] = {it, it2};
-          tasks.back().it = NewMergingIterator(user_comparator(), its, 2);
-          tasks.back().set(starts[i], starts[i+1], begin_index);
-        }
-      };
-      auto mergeTask = [&](){
-        // for(int i = 0; i < tasks.size(); i++){
-        //   auto &task = tasks[i];
-        //   if(task.bnode_begin == )
-        // }
-      };
-      if(files.empty()){
-        fillTaskOverSST(0, bnodes.size(), false);
-      }else{
-        // add task before sst.
-        fillTaskOverSST(0, sst_page_index + 1, true);
-        if(!tasks.empty()){
-          ((BP_Iterator*)tasks.back().it)->setEnd(sst_start);
-        }
-        // add sst in task.
-        if(sst_page_index != -1 || sst_page_end_index != -1){
-          int cur_task_count = tasks.size();
-          fillTaskBySST();
-          if(cur_task_count < tasks.size() && new_start_index != -1){
-            ((BP_Iterator*)tasks[cur_task_count].it)->setStart(((bnode*)bnodes[new_start_index])->kBegin());
-          }
-        }
-        if(sst_page_end_index != -1){
-          int cur_task_count = tasks.size();
-          fillTaskOverSST(sst_page_end_index, bnodes.size(), false);
-          if(cur_task_count < tasks.size()){
-            ((BP_Iterator*)tasks[cur_task_count].it)->setStart(sst_end);
-          }
-        }
-        mergeTask();
-      }
-    };
+    tree = Table_LN_[0];
+  }
 
-    //1. 读取对应的数量的bnode，并且获取sst begin和end对应的index
-    int sst_count = (files.size() + MAX_FILE_NUM - 1) / MAX_FILE_NUM;
-    pages2 = tree->getOverlappingMulTask(start_key, end_key, sst_count, sst_start, sst_end, new_start_key, sst_page_index, sst_page_end_index);
-    
-    //2. 切分任务
-    divideBnode();
+  //b+tree的选择范围
+  key_type start_key = c->smallest.empty()
+                           ? tree->tree_meta->min_key
+                           : DecodeDBBenchFixed64(c->smallest.data()) + 1;
+  if(writeSeq){
+    start_key = new_start_key_;
+  }
+  key_type end_key = c->largest.empty()
+                         ? tree->tree_meta->max_key
+                         : DecodeDBBenchFixed64(c->largest.data()) - 1;
+
+  //sst的选择范围
+  key_type sst_start = 0;
+  key_type sst_end = 0;
+  if(!writeSeq){
+    sst_start = DecodeDBBenchFixed64(files.front()->smallest.Encode().data());
+    sst_end = DecodeDBBenchFixed64(files.back()->largest.Encode().data()) + 1;
+    assert(sst_start < sst_end);
+  }
+  // key_type sst_start = DecodeDBBenchFixed64(c->sst_smallest.data());
+  // key_type sst_end = DecodeDBBenchFixed64(c->sst_largets.data());
+  new_start_key_ = -1;
+  int sst_page_index;
+  int sst_page_end_index;
+  kPage* kBegin;
+  kPage* kEnd;
+  mutex_.Unlock();
+
+  // 1. 读取对应的数量的bnode，并且获取sst begin和end对应的index
+  int sst_count = (files.size() + MAX_FILE_NUM - 1) / MAX_FILE_NUM;
+  pages2 = tree->getOverlappingMulTask(start_key, end_key, sst_count, sst_start,
+                                       sst_end, new_start_key_, sst_page_index,
+                                       sst_page_end_index, kBegin, kEnd);
+
+  versions_->setCompactionPointer(new_start_key_, 2, c);
+
+  // 2. 切分任务
+  std::vector<void*>& bnodes = pages2[1];
+  int new_start_index = -1;
+  key_type new_start = 0;
+
+  // 整个范围的起始位置，主要是sst_start 与 start_key中的最小值
+  key_type rangeBegin = writeSeq ? start_key : std::min(sst_start, start_key);
+  // 整个范围结束的位置，主要是sst_end和bnode最大值中的最大值。
+  key_type rangeEnd = writeSeq ? new_start_key_ : std::max(sst_end, new_start_key_);
+
+  auto fillTaskOverSST = [&](int start_index, int end_index, bool first) {
+    for (int i = start_index; i < end_index; i += MAX_BNODE_NUM) {
+      // if(end_index - i < MAX_BNODE_NUM / 5){
+      //   break;
+      // }
+      key_type start = ((bnode*)bnodes[i])->kBegin();
+      if(first && i == start_index){
+        start = rangeBegin;
+      }
+      if(!first && i == start_index){
+        start = new_start;
+      }
+      key_type end;
+      int bnode_count;
+      int next = i + MAX_BNODE_NUM;
+      // if(i + MAX_BNODE_NUM < end_index || next < end_index && end_index -
+      // next < MAX_BNODE_NUM / 5){
+      if (i + MAX_BNODE_NUM < end_index) {
+        end = ((bnode*)bnodes[i + MAX_BNODE_NUM])->kBegin();
+        bnode_count = MAX_BNODE_NUM;
+      } else {
+        new_start_index = i;
+        // it is temp end, it is wrong.
+        if (first) {
+          break;
+        } else {
+          end = std::min((((bnode*)bnodes.back())->kEnd() + 1), rangeEnd);
+          bnode_count = end_index - i;
+        }
+      }
+      BP_Iterator_Trim* it =
+          new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, i);
+      // BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1,
+      // INT_MAX, false, i);
+      it->setKeyStartAndEnd(start, end, user_comparator());
+      tasks.push_back({.it = it});
+      tasks.back().set(start, end, i);
+      tasks.back().it2 = it;
+    }
   };
+  auto fillTaskBySST = [&]() {
+    // 1. 记录sst的边界值
+    std::vector<key_type> starts;
+    for (int i = 0; i < files.size(); i += MAX_FILE_NUM) {
+      starts.push_back(
+          DecodeDBBenchFixed64(files[i]->smallest.Encode().data()));
+    }
+    if (files.size() % MAX_FILE_NUM <= MAX_FILE_NUM / 4 && starts.size() > 1) {
+      starts.pop_back();
+    }
+    starts.push_back(
+        DecodeDBBenchFixed64(files.back()->largest.Encode().data()) + 1);
+
+    // 2 获取边界值对应的index
+    int cur = 0;
+    int sst_index;
+    int last_index;
+    assert(starts.size() >= 2);
+    std::vector<int> start_index(-1, starts.size());
+    // int last = sst_page_end_index == -1 ? bnodes.size() :
+    // sst_page_end_index;
+    int first = sst_page_index == -1 ? 0 : sst_page_index;
+    for (int i = first; i < bnodes.size(); i++) {
+      auto& b = ((bnode*)bnodes[i])->kBegin();
+      while (cur < starts.size() && starts[cur] < b) {
+        cur++;
+      }
+      if (cur >= starts.size()) {
+        break;
+      }
+      if (b <= starts[cur]) {
+        start_index[cur] = i;
+      }
+    }
+    // 3. 生成对应的task
+    for (int i = 0; i < start_index.size() - 1; i++) {
+      int begin_index = start_index[i] == -1 ? 0 : start_index[i];
+      //如果当前的所有sst范围都不在目前选中的bnodes中。
+      if (starts[i + 1] < ((bnode*)bnodes[begin_index])->kBegin()) {
+        continue;
+      }
+      if(new_start_index != -1){
+        begin_index = new_start_index;
+      }
+      BP_Iterator_Trim* it =
+          new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, begin_index);
+      // BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1,
+      // INT_MAX, false, begin_index);
+      key_type startK = starts[i];
+      if(first && new_start_index != -1){
+        startK = ((bnode*)bnodes[new_start_index])->kBegin();
+      }
+      it->setKeyStartAndEnd(startK, starts[i + 1], user_comparator());
+      tasks.push_back({});
+      std::vector<FileMetaData*>::iterator endIt =
+          (i + 1) * MAX_FILE_NUM < files.size()
+              ? files.begin() + (i + 1) * MAX_FILE_NUM
+              : files.end();
+      tasks.back().files =
+          std::vector<FileMetaData*>(files.begin() + i * MAX_FILE_NUM, endIt);
+      Iterator* it2 = versions_->getTwoLevelIterator(tasks.back().files);
+      Iterator* its[2] = {it, it2};
+      tasks.back().it = NewMergingIterator(user_comparator(), its, 2);
+      tasks.back().set(startK, starts[i + 1], begin_index);
+      tasks.back().it2 = it;
+      tasks.back().it3 = it2;
+      if(new_start_index != -1){
+        new_start_index = -1;
+      }
+    }
+  };
+
+  constexpr bool multiThread = false;
+
+  if(multiThread){
+    if (writeSeq) {
+      fillTaskOverSST(0, bnodes.size(), false);
+    } else {
+      // add task before sst.
+      fillTaskOverSST(0, sst_page_index + 1, true);
+      assert(new_start_index != -1);
+      // if (!tasks.empty()) {
+      //   ((BP_Iterator*)tasks.back().it)->setEnd(sst_start);
+      // }
+      // add sst in task.
+      if (sst_page_index != -1 || sst_page_end_index != -1) {
+        // int cur_task_count = tasks.size();
+        fillTaskBySST();
+        // if (cur_task_count < tasks.size() && new_start_index != -1) {
+        //   ((BP_Iterator*)tasks[cur_task_count].it)
+        //       ->setStart(((bnode*)bnodes[new_start_index])->kBegin());
+        // }
+      }
+      if (sst_page_end_index != -1) {
+        new_start = sst_end;
+        // int cur_task_count = tasks.size();
+        fillTaskOverSST(sst_page_end_index, bnodes.size(), false);
+        // if (cur_task_count < tasks.size()) {
+        //   ((BP_Iterator*)tasks[cur_task_count].it)->setStart(sst_end);
+        // }
+      }
+    }
+  }else{
+    if(writeSeq){
+      BP_Iterator_Trim* it =
+        new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, 0);
+      it->setKeyStartAndEnd(rangeBegin, rangeEnd, user_comparator());
+      tasks.push_back({.it = it});
+      tasks.back().set(rangeEnd, rangeEnd, 0);
+      tasks.back().it2 = it;
+    }else{
+      BP_Iterator_Trim* it =
+          new BP_Iterator_Trim(pmAlloc_, tree.get(), bnodes, 0);
+      // BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1,
+      // INT_MAX, false, begin_index);
+      it->setKeyStartAndEnd(rangeBegin, rangeEnd, user_comparator());
+      tasks.push_back({});
+      tasks.back().files = files;
+      Iterator* it2 = versions_->getTwoLevelIterator(tasks.back().files);
+      Iterator* its[2] = {it, it2};
+      tasks.back().it = NewMergingIterator(user_comparator(), its, 2);
+      tasks.back().set(rangeBegin, rangeEnd, 0);
+      tasks.back().it2 = it;
+      tasks.back().it3 = it2;
+    }
+  }
+
+#ifdef DEBUG_PRINT
+  key_type lastEnd = 0;
+  int lastIndex = 0;
+  for(int i = 0; i < tasks.size(); i++){
+    printf("add task: [%ld, %ld), node count: %d, sst count: %zull", tasks[i].begin, tasks[i].end, tasks[i].bnode_begin, tasks[i].files.size());
+    assert(lastEnd <= tasks[i].begin);
+    assert(lastIndex <= tasks[i].bnode_begin);
+    lastEnd = tasks[i].end;
+    lastIndex = tasks[i].bnode_begin;
+  }
+  assert(rangeBegin <= tasks.front().begin && tasks.back().end <= rangeEnd);
+#endif
 
   auto writeToSSD = [&](Task &task, CompactionState *compact){
       Iterator *input = task.it;
@@ -1517,13 +1614,6 @@ Status DBImpl::CompactionLevel1Concurrency(){
         status = input->status();
       }
   };
-
-  divideTask();
-#ifdef DEBUG_PRINT
-  for(int i = 0; i < tasks.size(); i++){
-    printf("add task: [%ld, %ld), node count: %d, sst count: %zull", tasks[i].begin, tasks[i].end, tasks[i].bnode_begin, tasks[i].files.size());
-  }
-#endif
   std::vector<std::thread> threads;
   std::vector<CompactionState*> states;
   for(int i = 0; i < tasks.size(); i++){
@@ -1548,52 +1638,50 @@ Status DBImpl::CompactionLevel1Concurrency(){
 
   // replace指定范围的B-Tree的索引和kPage,
   // 自底向上（不会死锁，锁用一个释放一个）
-//   {
-//     std::lock_guard<std::mutex> lock(mutex_l1_);
-//     std::shared_ptr<lbtree> tree2 = Table_LN_[0];
-//     // tree2->needFreeNodePages = pages2;
-//     if(files.empty()){
-//       tree2->rangeDelete(pages2, tree2->tree_meta->min_key, tree2->tree_meta->max_key);
-//       Table_LN_.clear();
-// #ifdef DEBUG_PRINT
-//       start_key = tree2->tree_meta->min_key;
-//       end_key = tree2->tree_meta->max_key;
-// #endif
-//     }else{
-//       tree2->rangeDelete(pages2, start_key, end_key);
-//       if(end_key == tree2->tree_meta->max_key){
-//         tree2->tree_meta->max_key = start_key - 1;
-//       }
-//       if(start_key == tree2->tree_meta->min_key){
-//         tree2->tree_meta->min_key = end_key + 1;
-//       }
+  {
+    std::lock_guard<std::mutex> lock(mutex_l1_);
+    std::shared_ptr<lbtree> tree2 = Table_LN_[0];
+    tree2->rangeDelete(pages2, rangeBegin, rangeEnd);
+    if(rangeEnd >= tree2->tree_meta->max_key){
+      tree2->tree_meta->max_key = rangeBegin - 1;
+    }
+    if(rangeBegin <= tree2->tree_meta->min_key){
+      tree2->tree_meta->min_key = rangeEnd + 1;
+    }
 
-//     }
-//     ((BP_Iterator*)it1)->releaseKpage();
-// #ifdef MY_DEBUG
-//   if(!Table_LN_.empty()){
-//     Table_LN_[0]->reverseAndCheck();
-//   }
-// #endif
-//   }
-//   delete input;
+    for(int i = 0; i < tasks.size(); i++){
+      tasks[i].it2->releaseKVpage();
+      delete tasks[i].it3;
+      delete tasks[i].it2;
+      delete tasks[i].it;
+    }
 
-// #ifdef CAL_TIME
-//   imm_micros = env_->NowMicros() - start_micros;
-// #endif
-// #ifdef DEBUG_PRINT
-//       double usage1 = pmAlloc_->getMemoryUsabe();
-//       std::cout<< "compaction at level 1, cost time : "<< imm_micros / 1000;
-//       std::cout<< " memoryUsage: "<<usage1;
-//       std::cout<< " min key : " << start_key << " max key : " << end_key << std::endl;
-// #endif
-//   if (!status.ok()) {
-//     RecordBackgroundError(status);
-//   }
-//   CleanupCompaction(compact);
-//   c->ReleaseInputs();
-//   RemoveObsoleteFiles();
-//   delete c;
+    if(kBegin != nullptr && kEnd != nullptr){
+      kBegin->setNext(kEnd);
+    }
+#ifdef MY_DEBUG
+  if(!Table_LN_.empty()){
+    Table_LN_[0]->reverseAndCheck();
+  }
+#endif
+  }
+
+#ifdef CAL_TIME
+  imm_micros = env_->NowMicros() - start_micros;
+#endif
+#ifdef DEBUG_PRINT
+      double usage1 = pmAlloc_->getMemoryUsabe();
+      std::cout<< "compaction at level 2, cost time : "<< imm_micros / 1000;
+      std::cout<< " memoryUsage: "<<usage1;
+      std::cout<< " min key : " << rangeBegin << " max key : " << rangeEnd << std::endl;
+#endif
+  if (!status.ok()) {
+    RecordBackgroundError(status);
+  }
+  CleanupCompaction(states);
+  c->ReleaseInputs();
+  RemoveObsoleteFiles();
+  delete c;
   return Status::OK();
 }
 
@@ -1857,7 +1945,8 @@ void DBImpl::MergeL1(){
       needGC = false;
     }else if(level == 1){
       mutex_.Lock();
-      status = CompactionLevel1();
+      // status = CompactionLevel1();
+      status = CompactionLevel1Concurrency();
       mutex_.Unlock();
       flushSSD = false;
     }
@@ -1954,6 +2043,11 @@ void DBImpl::BackgroundCompaction() {
   //   }
   //   manual_compaction_ = nullptr;
   // }
+}
+void DBImpl::CleanupCompaction(std::vector<CompactionState*> compacts) {
+  for(int i = 0; i < compacts.size(); i++){
+    CleanupCompaction(compacts[i]);
+  }
 }
 
 void DBImpl::CleanupCompaction(CompactionState* compact) {
@@ -2348,9 +2442,9 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
     if(fileNumber < trees.size()){
       value_addr = (char*)trees[fileNumber]->lookup(rawKey, &pos);
       if (value_addr != nullptr) {
-        value_length = leveldb::DecodeFixed32(value_addr + 8);
+        value_length = leveldb::DecodeFixed32(value_addr + VPAGE_KEY_SIZE);
         // assert(value_length = 1000);
-        *value = std::string(value_addr + 4 + 8, value_length);
+        *value = std::string(value_addr + 4 + VPAGE_KEY_SIZE, value_length);
         readStats_.readRight++;
         readStats_.readL0Found++;
         return Status::OK();
@@ -2384,9 +2478,9 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
 #endif
       value_addr = (char*)trees[i]->lookup(rawKey, &pos);
       if (value_addr != nullptr) {
-        value_length = leveldb::DecodeFixed32(value_addr + 8);
+        value_length = leveldb::DecodeFixed32(value_addr + VPAGE_KEY_SIZE);
               // assert(value_length = 1000);
-        *value = std::string(value_addr + 4 + 8, value_length);
+        *value = std::string(value_addr + 4 + VPAGE_KEY_SIZE, value_length);
         readStats_.readL0Found++;
         return Status::OK();
       }
@@ -2402,9 +2496,9 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
     std::shared_ptr<lbtree> tree = Table_LN_[0];
     value_addr = (char*)Table_LN_[0]->lookup(rawKey, &pos);
     if (value_addr != nullptr) {
-      value_length = leveldb::DecodeFixed32(value_addr + 8);
+      value_length = leveldb::DecodeFixed32(value_addr + VPAGE_KEY_SIZE);
             // assert(value_length = 1000);
-      *value = std::string(value_addr + 4 + 8, value_length);
+      *value = std::string(value_addr + 4 + VPAGE_KEY_SIZE, value_length);
       readStats_.readL1Found++;
       return Status::OK();
     }else{
@@ -2420,9 +2514,9 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key, st
 #endif
       value_addr = (char*)trees[i]->lookup(rawKey, &pos);
       if (value_addr != nullptr) {
-        value_length = leveldb::DecodeFixed32(value_addr + 8);
+        value_length = leveldb::DecodeFixed32(value_addr + VPAGE_KEY_SIZE);
               // assert(value_length = 1000);
-        *value = std::string(value_addr + 4 + 8, value_length);
+        *value = std::string(value_addr + 4 + VPAGE_KEY_SIZE, value_length);
         readStats_.readL0Found++;
         return Status::OK();
       }

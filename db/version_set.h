@@ -242,6 +242,17 @@ class VersionSet {
   // describes the compaction.  Caller should delete the result.
   Compaction* PickCompaction();
 
+  void setCompactionPointer(uint64_t key, const int level, Compaction* c){
+    EncodeFixed64Reverse(nextKey, key);
+    Slice skey(nextKey, 8);
+    InternalKey ikey(skey, last_sequence_, kTypeValue);
+    compact_pointer_[level] = ikey.Encode().ToString();
+  }
+
+  void setCompactionPointer(const std::string& s, const int level){
+    compact_pointer_[level] = s;
+  }
+
   Iterator* getTwoLevelIterator(std::vector<FileMetaData*>& files);
 
   // Return a compaction object for compacting the range [begin,end] in
@@ -324,6 +335,7 @@ class VersionSet {
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
   std::string compact_pointer_[config::kNumLevels];
+  char nextKey[20];
 
   uint64_t search_count[3];
   uint64_t micros[3];
@@ -403,8 +415,8 @@ public:
   std::vector<FileMetaData*> inputs_[2];  // The two sets of inputs
   Slice smallest;
   Slice largest;
-  Slice sst_smallest;
-  Slice sst_largets;
+  // Slice sst_smallest;
+  // Slice sst_largets;
 };
 
 }  // namespace leveldb

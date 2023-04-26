@@ -48,7 +48,7 @@ public:
   }
   std::tuple<uint32_t, uint16_t> writeValue(const Slice& key, const Slice& value){
     assert(page_pm_ != nullptr);
-    assert(key.size() == 8);
+    assert(key.size() == 16);
     if(page_pm_->isFull(value_offset_ - (key.size() + 4 + value.size()), value_nums_)){
       flush_vpage();
     }
@@ -85,6 +85,7 @@ public:
   void try_flush_vpage(){
     if(value_nums_ > 4){ 
       flush_vpage();
+      page_pm_ = (char*)pm_alloc_->mallocPage(value_t);
     }
   }
   void flush_vpage(){
@@ -101,7 +102,7 @@ public:
   }
   std::tuple<uint32_t, uint16_t> writeValue(const Slice& key, const Slice& value){
     assert(page_pm_ != nullptr);
-    assert(key.size() == 8);
+    assert(key.size() == 16);
     if(page_buffer_->isFull(value_offset_ - (key.size() + 4 + value.size()), value_nums_)){
       flush_vpage();
       page_pm_ = (char*)pm_alloc_->mallocPage(value_t);

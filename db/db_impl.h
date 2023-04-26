@@ -175,6 +175,7 @@ class DBImpl : public DB {
   static void BGWork(void* db);
   void BackgroundCall();
   void BackgroundCompaction() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void CleanupCompaction(std::vector<CompactionState*> compacts);
   void CleanupCompaction(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   Status DoCompactionWork(CompactionState* compact)
@@ -255,6 +256,7 @@ class DBImpl : public DB {
   std::condition_variable conVar_;
   std::mutex mergeMutex_;
   std::thread compactionThread_;
+  key_type new_start_key_ = -1;
 public:
   ReadStats readStats_;
 };

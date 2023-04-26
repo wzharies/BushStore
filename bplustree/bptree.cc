@@ -77,6 +77,8 @@ void lbtree::reverseAndCheck() {
     assert(p->check());
     key_type preleft = -1;
     key_type preright = -1;
+    key_type minK = UINT64_MAX;
+    key_type maxK = 0;
     for(int i = 1; i <= p->num(); i++){
         next = p->ch(i);
         auto [left, right] = reverseAndCheckNode(tree_meta->root_level - 1, next);
@@ -85,21 +87,27 @@ void lbtree::reverseAndCheck() {
         }
         preleft = left;
         preright = right;
+        minK = std::min(minK, preleft);
+        maxK = std::max(maxK, preright);
     }
+    printf("reverseAndCheck start :%lu, end :%lu\n", minK, maxK);
 }
 
 void lbtree::checkIterator(){
+    int pageCount = 0;
     kPage* page = getKpage(tree_meta->min_key);
     assert(tree_meta->min_key <= page->minRawKey());
     printf("check star : %lu", page->minRawKey());
+    pageCount++;
     kPage* nextKpage;
     while(page->nextPage() != nullptr){
         nextKpage = page->nextPage();
         assert(page->maxRawKey() <= nextKpage->minRawKey());
         page = nextKpage;
+        pageCount++;
     }
     assert(page->maxRawKey() <= tree_meta->max_key);
-    printf(" end star : %lu\n", page->maxRawKey());
+    printf(" page count :%d, end star : %lu\n", pageCount, page->maxRawKey());
 }
 
 std::vector<std::vector<void *>> lbtree::pickInput(int page_count, int* index_start_pos, key_type* start, key_type* end)
@@ -330,7 +338,7 @@ Again1:
 std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
     key_type start_key, key_type end_key, int sst_count, key_type sst_start,
     key_type sst_end, key_type& new_start_key, int sst_page_index,
-    int sst_page_end_index) {
+    int sst_page_end_index, kPage*& kBegin, kPage*& kEnd) {
     // record the path from root to leaf
     // parray[level] is a node on the path
     // child ppos[level] of parray[level] == parray[level-1]
@@ -423,6 +431,26 @@ std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
             page_addr[i].push_back((void*)parray[i]);
             // bnodes[i].push_back((bnode *)parray[i]);
         }
+        kBegin = nullptr;
+        kEnd = nullptr;
+        
+        if(start_key <= tree_meta->min_key){
+            kBegin = nullptr;
+        // 当前kpage需要完全删除，找到上一个kPage
+        }else if(start_key == ((bnode *)parray[1])->k(ppos[1])){
+            if(ppos[1] > 1){
+                kBegin = ((bnode *)parray[1])->ch(ppos[1] - 1);
+            }else{
+                assert(start_key - 1 < start_key);
+                kBegin = getKpage(start_key - 1);
+                assert(kBegin != nullptr);
+                assert(kBegin->nextPage() == ((bnode *)parray[1])->ch(ppos[1]));
+            }
+        }else if(start_key > ((bnode *)parray[1])->k(ppos[1])){
+            kBegin = ((bnode *)parray[1])->ch(ppos[1]);
+        }else{
+            assert(false);
+        }
 
         int need_task_count = TASK_COUNT - sst_count;
         int need_bnode_count = need_task_count * MAX_BNODE_NUM;
@@ -453,11 +481,11 @@ std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
             if (!write_seq && begin <= sst_end) {
                 sst_page_end_index = cur_bnode_count;
             }
-            if (write_seq) {
+            if (write_seq || sst_end <= begin) {
                 task_bnode_count++;
                 if (task_bnode_count >= need_bnode_count) {
                     // finish for bnode count.
-                    new_start_key = end + 1;
+                    new_start_key = ((bnode*)parray[1])->kRealEnd() + 1;
                     break;
                 }
             }
@@ -494,282 +522,288 @@ std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
             }
         }
     inner_done2:;
-    }
-
-    // 4. RTM commit
-    // _xend();
-
-    return page_addr;
-}
-
-std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
-    std::vector<key_type> starts, key_type* begin, key_type* end,
-    std::vector<int>& page_indexs, std::vector<int>& entry_indexs,
-    std::vector<int>& page_counts, std::vector<int>& sst_index,
-    key_type& ret_start, key_type& ret_end, key_type& new_begin) {
-    // record the path from root to leaf
-    // parray[level] is a node on the path
-    // child ppos[level] of parray[level] == parray[level-1]
-    //
-    Pointer8B parray[32]; // 0 .. root_level will be used
-    short ppos[32];       // 1 .. root_level will be used
-    int pnum[32];      // 0 .. root_level will be used
-    key_type key = *begin;
-    volatile long long sum;
-    std::vector<std::vector<void *>> page_addr(tree_meta->root_level + 1);
-    // std::vector<std::vector<bnode *>> bnodes(tree_meta->root_level + 1);
-    /* Part 1. get the positions for the compaction key */
-    {
-        bnode *p;
-        //bleaf *lp;
-        int i, t, m, b;
-    #ifdef VAR_KEY
-        int c;
-    #endif
-
-    Again2:
-        // 1. RTM begin
-        // if (_xbegin() != _XBEGIN_STARTED)
-        // {
-        //     // random backoff
-        //     sum= 0;
-        //     for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
-        //     goto Again2;
-        // }
-
-        // 2. search nonleaf nodes
-        p = tree_meta->tree_root;
-
-        for (i = tree_meta->root_level; i > 0; i--)
-        {
-        #ifdef PREFETCH
-            // prefetch the entire node
-            NODE_PREF(p);
-        #endif
-            assert(p->lock() == 0 || p->lock() == 1);
-            // if the lock bit is set, abort
-            if (p->lock())
-            {
-                // _xabort(3);
-                goto Again2;
-            }
-
-            parray[i] = p;
-            // if(i > 1){
-            //     page_addr[i].push_back((void*)p);
-            // }
-            pnum[i] = p->num();
-
-            // binary search to narrow down to at most 8 entries
-            b = 1;
-            t = p->num();
-            while (b + 7 <= t)
-            {
-                m = (b + t) >> 1;
-            #ifdef VAR_KEY
-                c = vkcmp((char*)p->k(m), (char*)key);
-                if (c > 0)
-                    b = m + 1;
-                else if (c < 0)
-                    t = m - 1;
-            #else
-                if (key > p->k(m))
-                    b = m + 1;
-                else if (key < p->k(m))
-                    t = m - 1;
-            #endif
-                else
-                {
-                    p = p->ch(m);
-                    ppos[i] = m;
-                    goto inner_done1;
-                }
-            }
-
-            // sequential search (which is slightly faster now)
-            for (; b <= t; b++)
-            #ifdef VAR_KEY
-                if (vkcmp((char*)key, (char*)p->k(b)) > 0)
-                    break;
-            #else
-                if (key < p->k(b))
-                    break;
-            #endif
-            if(b == 1) b++;
-            p = p->ch(b - 1);
-            ppos[i] = b - 1;
-
-        inner_done1:;
-        }
-        for (i = tree_meta->root_level; i > 0; i--) {
-            page_addr[i].push_back((void *)parray[i]);
-            // bnodes[i].push_back((bnode *)parray[i]);
-        }
-        const int maxBnodeCount = 50;
-        const int maxTaskCount = 8;
-        int page_index = 0;
-        int cur_kpage_count = 0;
-        int cur_bnode_count = 0;
-        int cur_page_index = 0;
-        int task_count = 0;
-        key_type cur_end = 0;
-        int cur_end_index = 0;
-        bool inOrOutBnodeRange = false;
-        int cur_sst_index = 0;
-        bool isSeqWrite = false;
-        if(starts.empty()){
-            isSeqWrite = true;
+        if(end_key >= tree_meta->max_key){
+            kEnd = nullptr;
         }else{
-            cur_end = starts.front();
-            cur_end_index++;
+            assert(new_start_key != -1);
+            kEnd = getKpage(new_start_key);
         }
-        ret_start = ((bnode *)parray[1])->k(ppos[1]);
-
-        page_indexs.push_back(0);
-        entry_indexs.push_back(ppos[1]);
-        sst_index.push_back(-1);
-        //int start_pos = ppos[1];
-        // return the result;
-        auto divideSeqWrite = [&](){
-            //没有到达sst任务的边界时
-            if (*end > ((bnode*)parray[1])->k(pnum[1]) || task_count < maxTaskCount) {
-                // bnodeCount的要求已经满足，可以输出一个task了
-                if (cur_bnode_count >= maxBnodeCount) {
-                    // 生成task
-                    page_indexs.push_back(cur_page_index);
-                    entry_indexs.push_back(1);
-                    page_counts.push_back(cur_kpage_count);
-                    sst_index.push_back(-1);
-                    // 清空状态
-                    cur_kpage_count = 0;
-                    cur_bnode_count = 0;
-
-                    task_count++;
-                }
-                // 记录当前bnode的数据
-                cur_kpage_count += (pnum[1] - ppos[1] + 1);
-                cur_bnode_count++;
-                ret_end = ((bnode*)parray[1])->k(pnum[1]);
-            //任务数量够了，或者达到了B+tree的最后
-            }else{
-                // page_counts.push_back(cur_kpage_count);
-                // new_begin = 
-            }
-        };
-        while(true){
-            if(isSeqWrite){
-                divideSeqWrite();
-            }
-
-            //没有到达sst任务的边界时
-            if (cur_end > ((bnode*)parray[1])->k(pnum[1])) {
-                // bnodeCount的要求已经满足，可以输出一个task了
-                if (inOrOutBnodeRange && cur_bnode_count >= maxBnodeCount) {
-                    // 生成task
-                    page_indexs.push_back(cur_page_index);
-                    entry_indexs.push_back(1);
-                    page_counts.push_back(cur_kpage_count);
-                    sst_index.push_back(-1);
-                    // 清空状态
-                    cur_kpage_count = 0;
-                    cur_bnode_count = 0;
-                }
-                // 记录当前bnode的数据
-                cur_kpage_count += (pnum[1] - ppos[1] + 1);
-                cur_bnode_count++;
-                ret_end = ((bnode*)parray[1])->k(pnum[1]);
-                // 达到了sst的边界，需要在一个bnode中间切分任务
-            } else {
-                // 达到了第一个sst的边界，不能根据maxBnodeCount来输出task了
-                if (inOrOutBnodeRange) {
-                    inOrOutBnodeRange = false;
-                    sst_index.back() = cur_sst_index++;
-
-                    cur_kpage_count += (pnum[1] - ppos[1] + 1);
-                    cur_bnode_count++;
-                    ret_end = ((bnode*)parray[1])->k(pnum[1]);
-                    
-                    if(cur_end_index >= starts.size())
-                        // TODO is end.
-                        break;
-                    else
-                        cur_end = starts[cur_end_index++];
-                } else {
-                    for (short start_pos = ppos[1]; start_pos <= pnum[1];
-                         start_pos++) {
-                        // for(short start_pos = pnum[1] - 1; start_pos >=
-                        // ppos[1]; start_pos--){
-                        //  [start_pot, )后面是一个任务
-                        if (cur_end <= ((bnode*)parray[1])->k(start_pos)) {
-                          // 需要分成2个任务
-                          if (start_pos > 1) {
-                            // 1. 记录当前bnode前一半的状态
-                            cur_kpage_count += (start_pos - ppos[1]);
-                            cur_bnode_count++;
-                            ret_end = ((bnode*)parray[1])->k(start_pos - 1);
-                            // 2. 生成task
-                            page_indexs.push_back(cur_page_index);
-                            entry_indexs.push_back(start_pos);
-                            page_counts.push_back(cur_kpage_count);
-                            // 3. 清空状态
-                            cur_kpage_count = 0;
-                            cur_bnode_count = 0;
-                            // 4. 记录当前bnode的数据
-                            cur_kpage_count += (pnum[1] - start_pos + 1);
-                            cur_bnode_count++;
-                            ret_end = ((bnode*)parray[1])->k(pnum[1]);
-
-                            // 从开头切分，bnode只需要分成1个任务
-                          } else {
-                            // 1. 生成task
-                            page_indexs.push_back(cur_page_index);
-                            entry_indexs.push_back(1);
-                            page_counts.push_back(cur_kpage_count);
-                            // 2. 清空状态
-                            cur_kpage_count = 0;
-                            cur_bnode_count = 0;
-                            // 3. 记录当前bnode的数据
-                            cur_kpage_count += (pnum[1] - ppos[1] + 1);
-                            cur_bnode_count++;
-                            ret_end = ((bnode*)parray[1])->k(pnum[1]);
-                          }
-                          goto inner_done2;
-                        }
-                    }
-                }
-            }
-            cur_page_index++;
-
-            int level;
-            for(level = 2; level <= tree_meta->root_level; level++){
-                if(ppos[level] < pnum[level]){
-                    ppos[level]++;
-                    while(level >= 2){
-                        parray[level - 1] = ((bnode *)parray[level])->ch(ppos[level]);
-                        if(((bnode *)parray[level - 1])->kBegin() > *end){
-                            goto inner_done2;
-                        }
-                        page_addr[level - 1].push_back((void *)parray[level - 1]);
-                        // bnodes[level - 1].push_back((bnode *)parray[level - 1]);
-                        ppos[level - 1] = 1;
-                        pnum[level - 1] = ((bnode *)parray[level - 1])->num();
-                        level--;
-                    }
-                    break;
-                }
-            }
-            if(level == tree_meta->root_level + 1){
-                break;
-            }
-        }
-    inner_done2:;
     }
-    
+
     // 4. RTM commit
     // _xend();
 
     return page_addr;
 }
+
+// std::vector<std::vector<void*>> lbtree::getOverlappingMulTask(
+//     std::vector<key_type> starts, key_type* begin, key_type* end,
+//     std::vector<int>& page_indexs, std::vector<int>& entry_indexs,
+//     std::vector<int>& page_counts, std::vector<int>& sst_index,
+//     key_type& ret_start, key_type& ret_end, key_type& new_begin) {
+//     // record the path from root to leaf
+//     // parray[level] is a node on the path
+//     // child ppos[level] of parray[level] == parray[level-1]
+//     //
+//     Pointer8B parray[32]; // 0 .. root_level will be used
+//     short ppos[32];       // 1 .. root_level will be used
+//     int pnum[32];      // 0 .. root_level will be used
+//     key_type key = *begin;
+//     volatile long long sum;
+//     std::vector<std::vector<void *>> page_addr(tree_meta->root_level + 1);
+//     // std::vector<std::vector<bnode *>> bnodes(tree_meta->root_level + 1);
+//     /* Part 1. get the positions for the compaction key */
+//     {
+//         bnode *p;
+//         //bleaf *lp;
+//         int i, t, m, b;
+//     #ifdef VAR_KEY
+//         int c;
+//     #endif
+
+//     Again2:
+//         // 1. RTM begin
+//         // if (_xbegin() != _XBEGIN_STARTED)
+//         // {
+//         //     // random backoff
+//         //     sum= 0;
+//         //     for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+//         //     goto Again2;
+//         // }
+
+//         // 2. search nonleaf nodes
+//         p = tree_meta->tree_root;
+
+//         for (i = tree_meta->root_level; i > 0; i--)
+//         {
+//         #ifdef PREFETCH
+//             // prefetch the entire node
+//             NODE_PREF(p);
+//         #endif
+//             assert(p->lock() == 0 || p->lock() == 1);
+//             // if the lock bit is set, abort
+//             if (p->lock())
+//             {
+//                 // _xabort(3);
+//                 goto Again2;
+//             }
+
+//             parray[i] = p;
+//             // if(i > 1){
+//             //     page_addr[i].push_back((void*)p);
+//             // }
+//             pnum[i] = p->num();
+
+//             // binary search to narrow down to at most 8 entries
+//             b = 1;
+//             t = p->num();
+//             while (b + 7 <= t)
+//             {
+//                 m = (b + t) >> 1;
+//             #ifdef VAR_KEY
+//                 c = vkcmp((char*)p->k(m), (char*)key);
+//                 if (c > 0)
+//                     b = m + 1;
+//                 else if (c < 0)
+//                     t = m - 1;
+//             #else
+//                 if (key > p->k(m))
+//                     b = m + 1;
+//                 else if (key < p->k(m))
+//                     t = m - 1;
+//             #endif
+//                 else
+//                 {
+//                     p = p->ch(m);
+//                     ppos[i] = m;
+//                     goto inner_done1;
+//                 }
+//             }
+
+//             // sequential search (which is slightly faster now)
+//             for (; b <= t; b++)
+//             #ifdef VAR_KEY
+//                 if (vkcmp((char*)key, (char*)p->k(b)) > 0)
+//                     break;
+//             #else
+//                 if (key < p->k(b))
+//                     break;
+//             #endif
+//             if(b == 1) b++;
+//             p = p->ch(b - 1);
+//             ppos[i] = b - 1;
+
+//         inner_done1:;
+//         }
+//         for (i = tree_meta->root_level; i > 0; i--) {
+//             page_addr[i].push_back((void *)parray[i]);
+//             // bnodes[i].push_back((bnode *)parray[i]);
+//         }
+//         const int maxBnodeCount = 50;
+//         const int maxTaskCount = 8;
+//         int page_index = 0;
+//         int cur_kpage_count = 0;
+//         int cur_bnode_count = 0;
+//         int cur_page_index = 0;
+//         int task_count = 0;
+//         key_type cur_end = 0;
+//         int cur_end_index = 0;
+//         bool inOrOutBnodeRange = false;
+//         int cur_sst_index = 0;
+//         bool isSeqWrite = false;
+//         if(starts.empty()){
+//             isSeqWrite = true;
+//         }else{
+//             cur_end = starts.front();
+//             cur_end_index++;
+//         }
+//         ret_start = ((bnode *)parray[1])->k(ppos[1]);
+
+//         page_indexs.push_back(0);
+//         entry_indexs.push_back(ppos[1]);
+//         sst_index.push_back(-1);
+//         //int start_pos = ppos[1];
+//         // return the result;
+//         auto divideSeqWrite = [&](){
+//             //没有到达sst任务的边界时
+//             if (*end > ((bnode*)parray[1])->k(pnum[1]) || task_count < maxTaskCount) {
+//                 // bnodeCount的要求已经满足，可以输出一个task了
+//                 if (cur_bnode_count >= maxBnodeCount) {
+//                     // 生成task
+//                     page_indexs.push_back(cur_page_index);
+//                     entry_indexs.push_back(1);
+//                     page_counts.push_back(cur_kpage_count);
+//                     sst_index.push_back(-1);
+//                     // 清空状态
+//                     cur_kpage_count = 0;
+//                     cur_bnode_count = 0;
+
+//                     task_count++;
+//                 }
+//                 // 记录当前bnode的数据
+//                 cur_kpage_count += (pnum[1] - ppos[1] + 1);
+//                 cur_bnode_count++;
+//                 ret_end = ((bnode*)parray[1])->k(pnum[1]);
+//             //任务数量够了，或者达到了B+tree的最后
+//             }else{
+//                 // page_counts.push_back(cur_kpage_count);
+//                 // new_begin = 
+//             }
+//         };
+//         while(true){
+//             if(isSeqWrite){
+//                 divideSeqWrite();
+//             }
+
+//             //没有到达sst任务的边界时
+//             if (cur_end > ((bnode*)parray[1])->k(pnum[1])) {
+//                 // bnodeCount的要求已经满足，可以输出一个task了
+//                 if (inOrOutBnodeRange && cur_bnode_count >= maxBnodeCount) {
+//                     // 生成task
+//                     page_indexs.push_back(cur_page_index);
+//                     entry_indexs.push_back(1);
+//                     page_counts.push_back(cur_kpage_count);
+//                     sst_index.push_back(-1);
+//                     // 清空状态
+//                     cur_kpage_count = 0;
+//                     cur_bnode_count = 0;
+//                 }
+//                 // 记录当前bnode的数据
+//                 cur_kpage_count += (pnum[1] - ppos[1] + 1);
+//                 cur_bnode_count++;
+//                 ret_end = ((bnode*)parray[1])->k(pnum[1]);
+//                 // 达到了sst的边界，需要在一个bnode中间切分任务
+//             } else {
+//                 // 达到了第一个sst的边界，不能根据maxBnodeCount来输出task了
+//                 if (inOrOutBnodeRange) {
+//                     inOrOutBnodeRange = false;
+//                     sst_index.back() = cur_sst_index++;
+
+//                     cur_kpage_count += (pnum[1] - ppos[1] + 1);
+//                     cur_bnode_count++;
+//                     ret_end = ((bnode*)parray[1])->k(pnum[1]);
+                    
+//                     if(cur_end_index >= starts.size())
+//                         // TODO is end.
+//                         break;
+//                     else
+//                         cur_end = starts[cur_end_index++];
+//                 } else {
+//                     for (short start_pos = ppos[1]; start_pos <= pnum[1];
+//                          start_pos++) {
+//                         // for(short start_pos = pnum[1] - 1; start_pos >=
+//                         // ppos[1]; start_pos--){
+//                         //  [start_pot, )后面是一个任务
+//                         if (cur_end <= ((bnode*)parray[1])->k(start_pos)) {
+//                           // 需要分成2个任务
+//                           if (start_pos > 1) {
+//                             // 1. 记录当前bnode前一半的状态
+//                             cur_kpage_count += (start_pos - ppos[1]);
+//                             cur_bnode_count++;
+//                             ret_end = ((bnode*)parray[1])->k(start_pos - 1);
+//                             // 2. 生成task
+//                             page_indexs.push_back(cur_page_index);
+//                             entry_indexs.push_back(start_pos);
+//                             page_counts.push_back(cur_kpage_count);
+//                             // 3. 清空状态
+//                             cur_kpage_count = 0;
+//                             cur_bnode_count = 0;
+//                             // 4. 记录当前bnode的数据
+//                             cur_kpage_count += (pnum[1] - start_pos + 1);
+//                             cur_bnode_count++;
+//                             ret_end = ((bnode*)parray[1])->k(pnum[1]);
+
+//                             // 从开头切分，bnode只需要分成1个任务
+//                           } else {
+//                             // 1. 生成task
+//                             page_indexs.push_back(cur_page_index);
+//                             entry_indexs.push_back(1);
+//                             page_counts.push_back(cur_kpage_count);
+//                             // 2. 清空状态
+//                             cur_kpage_count = 0;
+//                             cur_bnode_count = 0;
+//                             // 3. 记录当前bnode的数据
+//                             cur_kpage_count += (pnum[1] - ppos[1] + 1);
+//                             cur_bnode_count++;
+//                             ret_end = ((bnode*)parray[1])->k(pnum[1]);
+//                           }
+//                           goto inner_done2;
+//                         }
+//                     }
+//                 }
+//             }
+//             cur_page_index++;
+
+//             int level;
+//             for(level = 2; level <= tree_meta->root_level; level++){
+//                 if(ppos[level] < pnum[level]){
+//                     ppos[level]++;
+//                     while(level >= 2){
+//                         parray[level - 1] = ((bnode *)parray[level])->ch(ppos[level]);
+//                         if(((bnode *)parray[level - 1])->kBegin() > *end){
+//                             goto inner_done2;
+//                         }
+//                         page_addr[level - 1].push_back((void *)parray[level - 1]);
+//                         // bnodes[level - 1].push_back((bnode *)parray[level - 1]);
+//                         ppos[level - 1] = 1;
+//                         pnum[level - 1] = ((bnode *)parray[level - 1])->num();
+//                         level--;
+//                     }
+//                     break;
+//                 }
+//             }
+//             if(level == tree_meta->root_level + 1){
+//                 break;
+//             }
+//         }
+//     inner_done2:;
+//     }
+    
+//     // 4. RTM commit
+//     // _xend();
+
+//     return page_addr;
+// }
 
 std::vector<std::vector<void *>> lbtree::getOverlapping(key_type start, key_type end, int* index_start_pos, int* page_count, key_type* ret_start, key_type* ret_end, kPage*& kBegin, kPage*& kEnd){
     // record the path from root to leaf
@@ -999,14 +1033,19 @@ void lbtree::rangeDelete(std::vector<std::vector<void*>>& pages, key_type start,
         if(pages[i].size() == 1){
             //包括first也需要删除掉，需要删除[firrst ,j)中的所有
             int first = node->search(start);
-            for(int j = node->num(); j >= first; j--){
-                if(node->k(j) <= end){
+            for(int last = node->num(); last >= first; last--){
+                if(node->k(last) <= end){
                     if(endIsDeleted){
-                        j = j + 1;
+                        if(i == 1 && (((kPage*)node->ch(last))->maxRawKey() > end)){
+                            new_start = ((kPage*)node->ch(last))->findLargeThen(end);
+                            node->setkandCheck(last, new_start);
+                        }else{
+                            last = last + 1;
+                        }
                     }else{
-                        node->setkandCheck(j, new_start);
+                        node->setkandCheck(last, new_start);
                     }
-                    node->remove(first, j);
+                    node->remove(first, last);
                     break;
                 }
             }
@@ -1022,14 +1061,19 @@ void lbtree::rangeDelete(std::vector<std::vector<void*>>& pages, key_type start,
             }
             //最后一个page，找到小于end的j，删除[1, j)的所有值
             node = (bnode*)pages[i].back();
-            for(int j = node->num(); j >= 1; j--){
-                if(node->k(j) <= end){
+            for(int last = node->num(); last >= 1; last--){
+                if(node->k(last) <= end){
                     if(endIsDeleted){
-                        j = j + 1;
+                        if(i == 1 && (((kPage*)node->ch(last))->maxRawKey() > end)){
+                            new_start = ((kPage*)node->ch(last))->findLargeThen(end);
+                            node->setkandCheck(last, new_start);
+                        }else{
+                            last = last + 1;
+                        }                    
                     }else{
-                        node->setkandCheck(j, new_start);
+                        node->setkandCheck(last, new_start);
                     }
-                    node->remove(1, j);
+                    node->remove(1, last);
                     break;
                 }
             }
@@ -1069,7 +1113,12 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>>& pages, std::vector<st
             for(last = node->num(); last >= first; last--){
                 if(node->k(last) <= end){
                     if(endIsDeleted){
-                        last = last + 1;
+                        if(i == 1 && (((kPage*)node->ch(last))->maxRawKey() > end)){
+                            new_start = ((kPage*)node->ch(last))->findLargeThen(end);
+                            node->setkandCheck(last, new_start);
+                        }else{
+                            last = last + 1;
+                        }
                     }else{
                         node->setkandCheck(last, new_start);
                     }
@@ -1344,7 +1393,12 @@ void lbtree::rangeReplace(std::vector<std::vector<void*>>& pages, std::vector<st
             for(last = node->num(); last >= 1; last--){
                 if(node->k(last) <= end){
                     if(endIsDeleted){
-                        last = last + 1;
+                        if(i == 1 && (((kPage*)node->ch(last))->maxRawKey() > end)){
+                            new_start = ((kPage*)node->ch(last))->findLargeThen(end);
+                            node->setkandCheck(last, new_start);
+                        }else{
+                            last = last + 1;
+                        }
                     }else{
                         node->setkandCheck(last, new_start);
                     }

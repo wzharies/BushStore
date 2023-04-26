@@ -1325,7 +1325,6 @@ Compaction* VersionSet::PickCompaction() {
   Compaction* c;
   int level = 1;
   int next_level = 2;
-  int max_files = 5;
   // 根据 compact_pointer找到满足条件的files
 
   if(options_->has_pm){
@@ -1335,7 +1334,7 @@ Compaction* VersionSet::PickCompaction() {
     }
     size_t i;
     auto getInputs =  [&](){
-      for (i = 0; i < current_->files_[next_level].size() && c->inputs_[1].size() < max_files; i++) {
+      for (i = 0; i < current_->files_[next_level].size() && c->inputs_[1].size() < MAX_FILE_NUM * TASK_COUNT; i++) {
         FileMetaData* f = current_->files_[next_level][i];
         if (compact_pointer_[next_level].empty() ||
             icmp_.Compare(f->largest.Encode(), compact_pointer_[next_level]) > 0) {
@@ -1345,8 +1344,9 @@ Compaction* VersionSet::PickCompaction() {
     };
     getInputs();
     if(c->inputs_[1].size() == 0){
-      compact_pointer_[next_level].clear();
-      getInputs();
+      // compact_pointer_[next_level].clear();
+      // getInputs();
+      return c;
     }
     assert(c->inputs_[1].size() != 0);
     c->input_version_ = current_;

@@ -52,7 +52,8 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   EncodeFixed64(p, (s << 8) | type);
   p += 8;
   if(type != kTypeDeletion){
-    auto [pointer, index] = write_.writeValue(key, value);
+    // auto [pointer, index] = write_.writeValue(key, value);
+    auto [pointer, index] = write_.writeValue(GetLengthPrefixedSlice(buf), value);
     assert(index >= 4);
     // auto check = [&](uint16_t index, uint32_t pointer){
     //     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer) << 12);

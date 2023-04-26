@@ -134,17 +134,27 @@ void* PMMemAllocator::mallocPage(PageType type) {
   std::lock_guard<std::mutex> lock(mutex_);
   // char* page_addr;
   if (type == key_t) {
-    for (auto extent : Kpage_) {
-      if (!extent->isFull()) {
-        return extent->getNewPage();
+    for(int i = Kpage_.size() - 1; i >= 0; i--){
+      if(!Kpage_[i]->isFull()){
+        return Kpage_[i]->getNewPage();
       }
     }
+    // for (auto extent : Kpage_) {
+    //   if (!extent->isFull()) {
+    //     return extent->getNewPage();
+    //   }
+    // }
   } else {
-    for (auto extent : Vpage_) {
-      if (!extent->isFull()) {
-        return extent->getNewPage();
+    for(int i = Vpage_.size() - 1; i >= 0; i--){
+      if(!Vpage_[i]->isFull()){
+        return Vpage_[i]->getNewPage();
       }
     }
+    // for (auto extent : Vpage_) {
+    //   if (!extent->isFull()) {
+    //     return extent->getNewPage();
+    //   }
+    // }
   }
   auto extent = NewExtent(type);
   return extent->getNewPage();

@@ -125,10 +125,10 @@ static const char* FLAGS_db = "/mnt/pmem0.1/pm_test";
 
 static char* PM_PATH = nullptr;
 // static size_t VALUE_SIZE = 4096;
-static uint64_t PM_SIZE = 80ULL * 1024 * 1024 * 1024;
-static uint64_t EXTENT_SIZE = 128 * 1024 * 1024;
+static uint64_t PM_SIZE = 8ULL * 1024 * 1024 * 1024;
+static uint64_t EXTENT_SIZE = 512 * 1024 * 1024;
 static bool USE_PM = true;
-static bool FLUSH_SSD=false;
+static bool FLUSH_SSD = true;
 static uint64_t BUCKET_NUMS = 16 * 1024 * 1024;
 
 namespace leveldb {

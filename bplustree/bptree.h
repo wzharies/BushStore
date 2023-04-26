@@ -123,6 +123,68 @@ typedef struct bnodeMeta
     int num;  /* number of keys */
 } bnodeMeta;
 
+// bnode
+class kPage{
+public:
+    uint64_t next;
+    uint64_t bitmap : LEAF_KEY_NUM;
+    // uint64_t lock : 1;
+    // uint64_t alt : 1;
+    uint64_t nums;
+    uint16_t finger[LEAF_KEY_NUM]; //指纹
+    uint16_t index[LEAF_KEY_NUM]; //在vpage的第几个
+    uint32_t pointer[LEAF_KEY_NUM]; //vPage地址，4k对齐，后12位不存储
+    char keys[];
+    key_type rawK(size_t index){
+        return DecodeDBBenchFixed64(keys + index * 16);
+    }
+    leveldb::Slice k(size_t index) const {
+        return leveldb::Slice(keys + index * 16, 16);
+    }
+    void setk(size_t index, leveldb::Slice key){
+        // keys[index * 3] = key.size();
+        assert(key.size() == 16);
+        memcpy(keys + index * 16, key.data(), 16);
+    }
+    kPage* nextPage(){
+        return (kPage*)next;
+    }
+    void setNext(void* p){
+        next = (uint64_t)p;
+    }
+    bool isEqual(size_t index, const key_type& key){
+        return key == DecodeDBBenchFixed64(keys + index * 16);
+    }
+    key_type minRawKey(){
+        assert(nums > 0);
+        return rawK(0);
+    }
+    key_type maxRawKey(){
+        assert(nums > 0);
+        return rawK(nums - 1);
+    }
+    key_type findLargeThen(key_type &key){
+        assert(key < maxRawKey());
+        for(int i = 0;i < nums; i++){
+            if(rawK(i) > key){
+                return rawK(i);
+            }
+        }
+        return maxRawKey();
+    }
+    void remove(int start, int end){
+        if(start >= end) return ;
+        for(int i = end; i < nums; i++){
+            finger[i - end + start] = finger[i];
+            pointer[i - end + start] = pointer[i];
+            index[i - end + start] = index[i];
+            setk(i - end + start, k(i));
+        }
+        //删除end - start个
+        nums = nums- (end - start);
+    }
+};
+
 /**
  * bnode: non-leaf node
  *
@@ -188,6 +250,7 @@ public:
 
     key_type &kBegin() { assert(num() > 0); return ent[1].k; }
     key_type &kEnd() { assert(num() > 0); return ent[num()].k; }
+    key_type kRealEnd() { assert(num() > 0); return ((kPage*)ent[num()].ch)->maxRawKey(); }
     int search(key_type &key) {
         int first = 1;
         int last = num() + 1;
@@ -218,61 +281,10 @@ public:
         return true;
     }
 
-}; // bnode
-class kPage{
-public:
-    uint64_t next;
-    uint64_t bitmap : LEAF_KEY_NUM;
-    // uint64_t lock : 1;
-    // uint64_t alt : 1;
-    uint64_t nums;
-    uint16_t finger[LEAF_KEY_NUM]; //指纹
-    uint16_t index[LEAF_KEY_NUM]; //在vpage的第几个
-    uint32_t pointer[LEAF_KEY_NUM]; //vPage地址，4k对齐，后12位不存储
-    char keys[];
-    key_type rawK(size_t index){
-        return DecodeDBBenchFixed64(keys + index * 16);
-    }
-    leveldb::Slice k(size_t index) const {
-        return leveldb::Slice(keys + index * 16, 16);
-    }
-    void setk(size_t index, leveldb::Slice key){
-        // keys[index * 3] = key.size();
-        assert(key.size() == 16);
-        memcpy(keys + index * 16, key.data(), 16);
-    }
-    kPage* nextPage(){
-        return (kPage*)next;
-    }
-    void setNext(void* p){
-        next = (uint64_t)p;
-    }
-    bool isEqual(size_t index, const key_type& key){
-        return key == DecodeDBBenchFixed64(keys + index * 16);
-    }
-    key_type minRawKey(){
-        assert(nums > 0);
-        return rawK(0);
-    }
-    key_type maxRawKey(){
-        assert(nums > 0);
-        return rawK(nums - 1);
-    }
-    void remove(int start, int end){
-        if(start >= end) return ;
-        for(int i = end; i < nums; i++){
-            finger[i - end + start] = finger[i];
-            pointer[i - end + start] = pointer[i];
-            index[i - end + start] = index[i];
-            setk(i - end + start, k(i));
-        }
-        //删除end - start个
-        nums = nums- (end - start);
-    }
 };
 constexpr int ONE_META_ENTRY_NUM = (256 - 8) / 4; 
 constexpr int VPAGE_START_INDEX = 4;
-constexpr int VPAGE_KEY_SIZE = 8;
+constexpr int VPAGE_KEY_SIZE = 16;
 struct MetaEntry{
     uint64_t bitmap;
     uint32_t offset[ONE_META_ENTRY_NUM];
@@ -322,7 +334,7 @@ struct vPage{
     }
     uint32_t setkv(size_t index, uint32_t off, const leveldb::Slice& key, const leveldb::Slice& value){
         // assert(VPAGE_START_INDEX <= index && index < capacity());
-        assert(key.size() == 8);
+        assert(key.size() == 16);
         assert(off > VPAGE_KEY_SIZE + 4 + value.size());
         off -= (VPAGE_KEY_SIZE + 4 + value.size());
         memcpy((char*)this + off, key.data(), key.size());
@@ -561,8 +573,8 @@ public:
     kPage* getKpage(key_type key);
     std::vector<std::vector<void *>> pickInput(int page_count, int* index_start_pos, key_type* start, key_type* end);
     std::vector<std::vector<void *>> getOverlapping(key_type start, key_type end, int* index_start_pos, int* page_count, key_type* ret_start, key_type* ret_end, kPage*& kBegin, kPage*& kEnd);
-    std::vector<std::vector<void *>> getOverlappingMulTask(std::vector<key_type> starts, key_type* begin, key_type* end, std::vector<int>& page_indexs, std::vector<int>& entry_indexs, std::vector<int>& page_counts, std::vector<int>& sst_index, key_type& ret_start, key_type& ret_end, key_type& new_begin);
-    std::vector<std::vector<void *>> getOverlappingMulTask(key_type start_key, key_type end_key, int sst_count, key_type sst_start, key_type sst_end, key_type &new_start_key, int sst_page_index, int sst_page_end_index);
+    // std::vector<std::vector<void *>> getOverlappingMulTask(std::vector<key_type> starts, key_type* begin, key_type* end, std::vector<int>& page_indexs, std::vector<int>& entry_indexs, std::vector<int>& page_counts, std::vector<int>& sst_index, key_type& ret_start, key_type& ret_end, key_type& new_begin);
+    std::vector<std::vector<void *>> getOverlappingMulTask(key_type start_key, key_type end_key, int sst_count, key_type sst_start, key_type sst_end, key_type &new_start_key, int sst_page_index, int sst_page_end_index, kPage*& kBegin, kPage*& kEnd);
     void rangeDelete(std::vector<std::vector<void*>>& pages, key_type start, key_type end);
     void rangeReplace(std::vector<std::vector<void*>>& pages, std::vector<std::vector<void*>>& new_pages, key_type start, key_type end);
 

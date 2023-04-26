@@ -147,9 +147,9 @@ public:
     // addr->bitmap = addr->bitmap & (~(1ULL << index()));
     if (addr->nums() == 0) {
       // TODO vPage需要删除,最好把pmALloc设置为全局变量或者单例
-      std::cout<< "free : " << addr <<std::endl;
-      needFreeVPgaes_.push_back((char*)addr);
-      // alloc_->freePage((char*)addr, value_t);
+      // std::cout<< "free : " << addr <<std::endl;
+      // needFreeVPgaes_.push_back((char*)addr);
+      alloc_->freePage((char*)addr, value_t);
     }
   }
 
@@ -276,6 +276,7 @@ class BP_Iterator_Trim : public IteratorBTree {
     kpage_ = (kPage*)index_page_->ch(pos_index_);
     while(pos_index_ + 1 <= index_page_->num()){
       if(((kPage*)index_page_->ch(pos_index_ + 1))->minRawKey() > rStartKey){
+        kpage_ = (kPage*)index_page_->ch(pos_index_);
         break;
       }
       pos_index_++;
@@ -353,15 +354,15 @@ class BP_Iterator_Trim : public IteratorBTree {
     return addr->v(index());
   }
 
-  void clrValue() {
+  void clrValue() override {
     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
     addr->clrBitMap(index());
     // addr->bitmap = addr->bitmap & (~(1ULL << index()));
     if (addr->nums() == 0) {
       // TODO vPage需要删除,最好把pmALloc设置为全局变量或者单例
-       std::cout<< "free : " << addr <<std::endl;
-      vPages_.push_back((char*)addr);
-      // alloc_->freePage((char*)addr, value_t);
+      //  std::cout<< "free : " << addr <<std::endl;
+      // vPages_.push_back((char*)addr);
+      alloc_->freePage((char*)addr, value_t);
     }
   }
 
@@ -574,10 +575,11 @@ class BP_Iterator : public IteratorBTree {
     addr->clrBitMap(index());
     // addr->bitmap = addr->bitmap & (~(1ULL << index()));
     if (addr->nums() == 0) {
-      // TODO vPage需要删除,最好把pmALloc设置为全局变量或者单例
-       std::cout<< "free : " << addr <<std::endl;
-      // alloc_->freePage((char*)addr, value_t);
-      vPages_.push_back((char*)addr);
+      // TODO 这里有bug，如果是实时free，并发场景会有正确性问题. 但如果缓存最后free，那么compaction + GC的时候PM空间就不够用了
+
+      //  std::cout<< "free : " << addr <<std::endl;
+      alloc_->freePage((char*)addr, value_t);
+      // vPages_.push_back((char*)addr);
     }
   }
 
