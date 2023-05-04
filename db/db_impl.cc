@@ -41,10 +41,10 @@
 #include "bplustree/bp_iterator.h"
 #include "bplustree/bp_merge_iterator.h"
 
-#define MY_DEBUG
-#define DEBUG_PRINT
 #define CUCKOO_FILTER
-#define CAL_TIME
+// #define MY_DEBUG
+// #define DEBUG_PRINT
+// #define CAL_TIME
 // #define LOG_SYS
 
 namespace leveldb {
@@ -163,6 +163,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       versions_(new VersionSet(dbname_, &options_, table_cache_,
                                &internal_comparator_)),
       cuckoo_filter_(raw_options.bucket_nums == 0 ? nullptr : new CuckooFilter(raw_options.bucket_nums)),
+      usage_(0),
       compactionThread_(&DBImpl::MergeL1, this) {compactionThread_.detach();}
 
 DBImpl::~DBImpl() {
@@ -327,7 +328,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
 
   if (!env_->FileExists(CurrentFileName(dbname_))) {
     if (options_.create_if_missing) {
-      Log(options_.info_log, "Creating DB %s since it was missing.",
+      Log(options_.info_log, "Creating (debugTag) DB %s since it was missing.",
           dbname_.c_str());
       s = NewDB();
       if (!s.ok()) {
@@ -563,7 +564,7 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
         //assert(curKey == count);
         count++;
         auto [pointer, index] = iter->valuePointer();
-        assert(index >= 4);
+        // assert(index >= 4);
         // auto check = [&](uint16_t index, uint32_t pointer){
         //     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer) << 12);
         //     assert(addr->v(index).size() == 4096);
@@ -847,9 +848,8 @@ bool DBImpl::isNeedGC(){
   return needGC;
 }
 
-constexpr double rate = 0.8;
 int DBImpl::PickCompactionPM(){
-  double usage = pmAlloc_->getMemoryUsabe();
+  usage_ = pmAlloc_->getMemoryUsabe();
   int level = -1;
   
   mutex_l0_.lock();
@@ -865,13 +865,14 @@ int DBImpl::PickCompactionPM(){
     level = 0;
   }
   if(options_.flush_ssd){
-    if(usage > rate){
+    if(usage_ > memory_rate){
       level = 1;
       flushSSD = true;
     }
-  }else if(usage > rate){
+  }else if(usage_ > memory_rate){
     level = 0;
     needGC = true;
+    // printf("need GC!!\n");
   }
 
   return level;
@@ -949,7 +950,7 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   //   }
   // }
   int max_count = Table_L0_Merge.size();
-  assert(max_count != 0);
+  // assert(max_count != 0);
   if (max_count == 0) {
     return Status::OK();
   }
@@ -1031,7 +1032,8 @@ int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
       last_sequence_for_key = ikey.sequence;
     }
     if (!drop) {
-      if (isNeedGC()) {
+      if (input->getCapacityUsage() < usage_ / 2) {
+      // if (isNeedGC() || input->getCapacityUsage() < usage_ / 2) {
         // 重写到新的kPage，用新的索引
         //  1. kPage中的数据重写
         builder.add(key, input->value(), input->finger());
@@ -1261,6 +1263,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
     }
   };
   std::vector<Task> tasks;
+  tasks.reserve(TASK_COUNT + 2);
   
   bool writeSeq = files.empty() ? true : false;
 
@@ -1321,12 +1324,13 @@ Status DBImpl::CompactionLevel1Concurrency(){
   // 整个范围结束的位置，主要是sst_end和bnode最大值中的最大值。
   key_type rangeEnd = writeSeq ? new_start_key_ : std::max(sst_end, new_start_key_);
 
-  if(new_start_key_ >= tree->tree_meta->max_key){
+  if(new_start_key_ > tree->tree_meta->max_key){
     new_start_key_ = 0;
   }
 
+  constexpr bool multiThread = true;
 
-  auto fillTaskOverSST = [&](int start_index, int end_index, bool first) {
+  auto fillTaskOverSST = [&](int start_index, int end_index, bool first, bool isend) {
     for (int i = start_index; i < end_index; i += MAX_BNODE_NUM) {
       // if(end_index - i < MAX_BNODE_NUM / 5){
       //   break;
@@ -1349,10 +1353,10 @@ Status DBImpl::CompactionLevel1Concurrency(){
       } else {
         new_start_index = i;
         // it is temp end, it is wrong.
-        if (first) {
+        if (!isend) {
           break;
         } else {
-          end = std::min((((bnode*)bnodes.back())->kEnd() + 1), rangeEnd);
+          end = std::min((((bnode*)bnodes.back())->kRealEnd() + 1), rangeEnd);
           bnode_count = end_index - i;
         }
       }
@@ -1373,9 +1377,9 @@ Status DBImpl::CompactionLevel1Concurrency(){
       starts.push_back(
           DecodeDBBenchFixed64(files[i]->smallest.Encode().data()));
     }
-    if (files.size() % MAX_FILE_NUM <= MAX_FILE_NUM / 4 && starts.size() > 1) {
-      starts.pop_back();
-    }
+    // if (files.size() % MAX_FILE_NUM <= MAX_FILE_NUM / 4 && starts.size() > 1) {
+    //   starts.pop_back();
+    // }
     starts.push_back(
         DecodeDBBenchFixed64(files.back()->largest.Encode().data()) + 1);
 
@@ -1384,7 +1388,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
     int sst_index;
     int last_index;
     assert(starts.size() >= 2);
-    std::vector<int> start_index(-1, starts.size());
+    std::vector<int> start_index(starts.size(), -1);
     // int last = sst_page_end_index == -1 ? bnodes.size() :
     // sst_page_end_index;
     int first = sst_page_index == -1 ? 0 : sst_page_index;
@@ -1400,12 +1404,25 @@ Status DBImpl::CompactionLevel1Concurrency(){
         start_index[cur] = i;
       }
     }
+    while (cur != 0 && cur < starts.size()) {
+      start_index[cur] = bnodes.size() - 1;
+      cur++;
+    }
     // 3. 生成对应的task
+    int removeFirst = -1;
+    int removeLast = -1;
     for (int i = 0; i < start_index.size() - 1; i++) {
       int begin_index = start_index[i] == -1 ? 0 : start_index[i];
       //如果当前的所有sst范围都不在目前选中的bnodes中。
       if (starts[i + 1] < ((bnode*)bnodes[begin_index])->kBegin()) {
+        // TODO 这种场景下的task可以移除，input也需要删除
+        removeFirst = std::min((int)files.size(), (i + 1) * MAX_FILE_NUM);
         continue;
+      }
+      if ((starts[i] > ((bnode*)bnodes.back())->kRealEnd())) {
+        removeLast = i * MAX_FILE_NUM;
+        sst_page_end_index = -1;
+        break;
       }
       if(new_start_index != -1){
         begin_index = new_start_index;
@@ -1415,38 +1432,52 @@ Status DBImpl::CompactionLevel1Concurrency(){
       // BP_Iterator *it = new BP_Iterator(pmAlloc_, tree.get(), bnodes, 1,
       // INT_MAX, false, begin_index);
       key_type startK = starts[i];
-      if(first && new_start_index != -1){
-        startK = ((bnode*)bnodes[new_start_index])->kBegin();
+      key_type endK = starts[i + 1];
+      if(i == 0 && new_start_index != -1){
+        startK = std::max(((bnode*)bnodes[new_start_index])->kBegin(), rangeBegin);
       }
-      it->setKeyStartAndEnd(startK, starts[i + 1], user_comparator());
+      if(i == start_index.size() - 2 && sst_page_end_index != -1 && sst_page_end_index - start_index[i + 1] < 5){
+        endK = rangeEnd;
+        sst_page_end_index = -1;
+      }
+      it->setKeyStartAndEnd(startK, endK, user_comparator());
       tasks.push_back({});
       std::vector<FileMetaData*>::iterator endIt =
           (i + 1) * MAX_FILE_NUM < files.size()
               ? files.begin() + (i + 1) * MAX_FILE_NUM
               : files.end();
-      tasks.back().files =
-          std::vector<FileMetaData*>(files.begin() + i * MAX_FILE_NUM, endIt);
+      tasks.back().files.assign(files.begin() + i * MAX_FILE_NUM, endIt);
       Iterator* it2 = versions_->getTwoLevelIterator(tasks.back().files);
       Iterator* its[2] = {it, it2};
       tasks.back().it = NewMergingIterator(user_comparator(), its, 2);
-      tasks.back().set(startK, starts[i + 1], begin_index);
+      tasks.back().set(startK, endK, begin_index);
       tasks.back().it2 = it;
       // tasks.back().it3 = it2;
       if(new_start_index != -1){
         new_start_index = -1;
       }
     }
+    if(removeFirst != -1){
+#ifdef DEBUG_PRINT
+      printf("erase files : %d-%d\n",0, removeFirst);
+#endif
+      files.erase(files.begin(), files.begin() + removeFirst);
+    }
+    if(removeLast != -1){
+#ifdef DEBUG_PRINT
+      printf("erase files : %d-%zu\n",removeLast, files.size());
+#endif
+      files.erase(files.begin() + removeLast, files.end());
+    }
   };
-
-  constexpr bool multiThread = false;
 
   if(multiThread){
     if (writeSeq) {
-      fillTaskOverSST(0, bnodes.size(), false);
+      fillTaskOverSST(0, bnodes.size(), true, true);
     } else {
       // add task before sst.
-      fillTaskOverSST(0, sst_page_index + 1, true);
-      assert(new_start_index != -1);
+      fillTaskOverSST(0, sst_page_index + 1, true, false);
+      // assert(new_start_index != -1);
       // if (!tasks.empty()) {
       //   ((BP_Iterator*)tasks.back().it)->setEnd(sst_start);
       // }
@@ -1462,7 +1493,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
       if (sst_page_end_index != -1) {
         new_start = sst_end;
         // int cur_task_count = tasks.size();
-        fillTaskOverSST(sst_page_end_index, bnodes.size(), false);
+        fillTaskOverSST(sst_page_end_index, bnodes.size(), false, true);
         // if (cur_task_count < tasks.size()) {
         //   ((BP_Iterator*)tasks[cur_task_count].it)->setStart(sst_end);
         // }
@@ -1500,6 +1531,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
     printf("add task: [%ld, %ld), node count: %d, sst count: %zull\n", tasks[i].begin, tasks[i].end, tasks[i].bnode_begin, tasks[i].files.size());
     assert(lastEnd <= tasks[i].begin);
     assert(lastIndex <= tasks[i].bnode_begin);
+    assert(tasks[i].begin < tasks[i].end);
     lastEnd = tasks[i].end;
     lastIndex = tasks[i].bnode_begin;
   }
@@ -1985,9 +2017,9 @@ void DBImpl::BackgroundCompaction() {
   mutex_l0_.lock();
   uint32_t l0_num = Table_L0_.size();
   mutex_l0_.unlock();
-  int usage = pmAlloc_->getMemoryUsabe();
+  double usage = pmAlloc_->getMemoryUsabe();
 
-  if (imm_ != nullptr && l0_num < 20 && !needGC && !flushSSD && usage < 0.95) {
+  if (imm_ != nullptr && l0_num < 20 && !needGC && !flushSSD && usage < memory_rate) {
     CompactMemTable();
     conVar_.notify_one();
     //CompactMemTableToPM();
@@ -2410,7 +2442,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   mutex_l1_.lock();
     assert(Table_LN_.size() == 1 || Table_LN_.size() == 0);
     if(!Table_LN_.empty()){
-      list.push_back(new BP_Iterator_Read(Table_LN_.back()));
+      list.push_back(new BP_Iterator_Read(Table_LN_.back(), nullptr, true, &mutex_l1_));
     }
   mutex_l1_.unlock();
   versions_->current()->AddIterators(options, &list);
@@ -2611,10 +2643,10 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options) {
 }
 
 void DBImpl::RecordReadSample(Slice key) {
-  MutexLock l(&mutex_);
-  if (versions_->current()->RecordReadSample(key)) {
-    MaybeScheduleCompaction();
-  }
+  // MutexLock l(&mutex_);
+  // if (versions_->current()->RecordReadSample(key)) {
+  //   MaybeScheduleCompaction();
+  // }
 }
 
 const Snapshot* DBImpl::GetSnapshot() {
@@ -2926,6 +2958,7 @@ DB::~DB() = default;
 
 Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   *dbptr = nullptr;
+  Log(options.info_log, "open database :%s !!!\n", dbname.c_str());
 
   DBImpl* impl = new DBImpl(options, dbname);
   impl->mutex_.Lock();

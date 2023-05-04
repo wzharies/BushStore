@@ -45,6 +45,8 @@ if (USE_ASAN)
   # Enable use-after-scope check
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize-address-use-after-scope")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lasan")
+
+  # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
 endif (USE_ASAN)
 
 include(CheckIncludeFile)

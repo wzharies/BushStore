@@ -64,6 +64,11 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
     p+=4;
     EncodeFixed16(p, index);
     assert(p + 2 == buf + encoded_len);
+  }else{
+    EncodeFixed32(p, 0);
+    p+=4;
+    EncodeFixed16(p, 0);
+    assert(p + 2 == buf + encoded_len);
   }
   // p = EncodeVarint32(p, val_size);
   // std::memcpy(p, value.data(), val_size);

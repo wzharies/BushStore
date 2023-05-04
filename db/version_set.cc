@@ -1361,13 +1361,13 @@ Compaction* VersionSet::PickCompaction() {
       assert(next_index >= 0);
       c->largest = current_->files_[next_level][next_index]->smallest.Encode();
     }
-    if(i == current_->files_[next_level].size()){
-      compact_pointer_[next_level] = {};
-      c->edit_.SetCompactPointer(next_level, c->inputs_[1].back()->largest);
-    }else{
-      compact_pointer_[next_level] = c->inputs_[1].back()->largest.Encode().ToString();
-      c->edit_.SetCompactPointer(next_level, c->inputs_[1].back()->largest);
-    }
+    // if(i == current_->files_[next_level].size()){
+    //   compact_pointer_[next_level] = {};
+    //   c->edit_.SetCompactPointer(next_level, c->inputs_[1].back()->largest);
+    // }else{
+    //   compact_pointer_[next_level] = c->inputs_[1].back()->largest.Encode().ToString();
+    //   c->edit_.SetCompactPointer(next_level, c->inputs_[1].back()->largest);
+    // }
     return c;
   }
   // We prefer compactions triggered by too much data in a level over

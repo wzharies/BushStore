@@ -67,7 +67,7 @@ private:
 class vPageWrite {
 public:
   vPageWrite(){
-    page_buffer_ = (vPage*)calloc(1, max_size);
+    page_buffer_ = (vPage*)calloc(1, VPAGE_CAPACITY);
   }
   ~vPageWrite(){
     if(value_nums_ > 4){ 

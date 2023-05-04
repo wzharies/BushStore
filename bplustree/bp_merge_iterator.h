@@ -55,6 +55,10 @@ public:
         return current_->value();
     }
 
+    double getCapacityUsage(){
+        return current_->getCapacityUsage();
+    }
+
     void clrValue(){
         current_->clrValue();
     }

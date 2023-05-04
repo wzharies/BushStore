@@ -68,7 +68,7 @@ void CuckooFilter::GenerateIndexTagHash(Slice key, size_t *index1, size_t *index
     *index1 = IndexHash(bucket_num_, hash >> 32);
     *tag = TagHash(hash);
     *index2 = IndexHash(bucket_num_, (uint32_t)(*index1 ^ ((*tag) * 0x5bd1e995)));
-    if(dist2(rng2) == 0){
+    if(rand() % 2 == 0){
         std::swap(*index1, *index2);
     }
     // if(*index1 != IndexHash(bucket_num_, (uint32_t)(*index2 ^ ((*tag) * 0x5bd1e995)))){
@@ -83,6 +83,7 @@ CuckooFilter::CuckooFilter(uint32_t bucket_num) : rng2(std::random_device{}()), 
     for(int i = 0; i < bucket_num; i++){
         buckets_[i] = &slots_[i * ASSOC_WAY];
     }
+    srand(time(0));
 }
 CuckooFilter::~CuckooFilter(){
     free(slots_);
@@ -178,7 +179,7 @@ void CuckooFilter::Put(Slice key, uint32_t value){
     uint32_t kick_value(value);
     size_t kick_index = index[1];
     for(int j = 0; j < MAX_KICK * 2; j++){
-        size_t pick = dist4(rng4);
+        size_t pick = rand() % 4;
         kick_tag = bucket[pick].tag.exchange(kick_tag,std::memory_order_relaxed);
         kick_value = bucket[pick].lid.exchange(kick_value,std::memory_order_relaxed);
         // if(j >= MAX_KICK){

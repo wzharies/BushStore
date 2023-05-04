@@ -107,7 +107,7 @@ public:
     // if( (uint64_t)ret == (uint64_t)0x555589cfb800){
     //   std::cout<<"malloc"<<std::endl;
     // }
-
+    assert(page_count_ >= used_count_);
     if(free_lists_.empty()){
       assert(page_count_ - used_count_ == free_lists_.size());
       return nullptr;
@@ -129,6 +129,7 @@ public:
     bitmap_->clr((addr - page_start_addr_) / page_size_);
     used_count_--;
     assert(used_count_ >= 0);
+    assert(page_count_ >= used_count_);
     assert(page_count_ - used_count_ == free_lists_.size());
   }
   bool isFull() { return used_count_ == page_count_; }
@@ -153,8 +154,8 @@ class PMMemAllocator {
   void* mallocPage(PageType type);
   std::vector<void*> mallocPage(PageType type, uint64_t count);
   void freePage(char* addr, PageType type);
-  uint64_t GetKpageSize() { return kPage_size_; }
-  uint64_t GetVpageSize() { return vPage_size_; }
+  // uint64_t GetKpageSize() { return kPage_size_; }
+  // uint64_t GetVpageSize() { return vPage_size_; }
   void Sync();
   double getMemoryUsabe(){
     std::lock_guard<std::mutex> lock(mutex_);

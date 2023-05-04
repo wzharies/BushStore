@@ -26,6 +26,7 @@ class IteratorBTree : public Iterator{
   virtual uint16_t index() const = 0;
   virtual Slice key() const = 0;
   virtual Slice value() const = 0;
+  virtual double getCapacityUsage() = 0;
   virtual void clrValue() = 0;
   virtual void movePage() = 0;
   virtual Status status() const = 0;
@@ -33,8 +34,12 @@ class IteratorBTree : public Iterator{
 
 class BP_Iterator_Read : public IteratorBTree{
 public:
-  BP_Iterator_Read(std::shared_ptr<lbtree> tree, PMMemAllocator* alloc = nullptr, bool readOnly = true) : alloc_(alloc), readOnly_(readOnly), tree_(tree) { }
-  ~BP_Iterator_Read() {}
+  BP_Iterator_Read(std::shared_ptr<lbtree> tree, PMMemAllocator* alloc = nullptr, bool readOnly = true, std::mutex *mutex = nullptr) : alloc_(alloc), readOnly_(readOnly), tree_(tree), mutex_(mutex) { }
+  ~BP_Iterator_Read() {
+    if(mutex_ != nullptr){
+      mutex_->unlock();
+    }
+  }
 
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.
@@ -45,8 +50,11 @@ public:
   // Position at the first key in the source.  The iterator is Valid()
   // after this call iff the source is not empty.
   void SeekToFirst() override {
+    if(mutex_ != nullptr){
+      mutex_->lock();
+    }
     key_type key = tree_->tree_meta->min_key;
-    curPage_ = tree_->getKpage(key);
+    curPage_ = tree_->getKpage(key, true);
     if(curPage_ == nullptr){
       valid = false;
       return ;
@@ -66,6 +74,7 @@ public:
   // Position at the last key in the source.  The iterator is
   // Valid() after this call iff the source is not empty.
   void SeekToLast() override {
+    printf("SeekToLast is unsupported.\n");
     assert(false);
   }
 
@@ -73,8 +82,11 @@ public:
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or past target.
   void Seek(const Slice& target) override {
+    if(mutex_ != nullptr){
+      mutex_->lock();
+    }
     key_type key = DecodeDBBenchFixed64(target.data());
-    curPage_ = tree_->getKpage(key);
+    curPage_ = tree_->getKpage(key, true);
     if(curPage_ == nullptr){
       valid = false;
       return ;
@@ -139,7 +151,12 @@ public:
   Slice value() const override {
     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
     return addr->v(index());
-  }  
+  }
+
+  double getCapacityUsage() override {
+    vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
+    return addr->getCapacityUsage();
+  }
 
   void clrValue() override {
     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
@@ -171,6 +188,7 @@ private:
   int curIndex = 0;
   bool valid = false;
   std::shared_ptr<lbtree> tree_;
+  std::mutex *mutex_ = nullptr;
 };
 class BP_Iterator_Trim : public IteratorBTree {
  public:
@@ -281,6 +299,9 @@ class BP_Iterator_Trim : public IteratorBTree {
       }
       pos_index_++;
     }
+    if(pos_index_ == index_page_->num()){
+      kpage_ = (kPage*)index_page_->ch(pos_index_);
+    }
     pos_data_ = 0;
     valid_ = true;
     // valid_ = kpage_count_ == 0 ? false : true;
@@ -354,6 +375,11 @@ class BP_Iterator_Trim : public IteratorBTree {
     return addr->v(index());
   }
 
+  double getCapacityUsage() override {
+    vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
+    return addr->getCapacityUsage();
+  }
+
   void clrValue() override {
     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
     addr->clrBitMap(index());
@@ -361,8 +387,8 @@ class BP_Iterator_Trim : public IteratorBTree {
     if (addr->nums() == 0) {
       // TODO vPage需要删除,最好把pmALloc设置为全局变量或者单例
       //  std::cout<< "free : " << addr <<std::endl;
-      // vPages_.push_back((char*)addr);
-      alloc_->freePage((char*)addr, value_t);
+      vPages_.push_back((char*)addr);
+      // alloc_->freePage((char*)addr, value_t);
     }
   }
 
@@ -568,6 +594,11 @@ class BP_Iterator : public IteratorBTree {
     // TODO 也许可以优化？
     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
     return addr->v(index());
+  }
+
+  double getCapacityUsage() override {
+    vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
+    return addr->getCapacityUsage();
   }
 
   void clrValue() override {

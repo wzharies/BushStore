@@ -179,7 +179,10 @@ void PMMemAllocator::Sync() {
 PMExtent* PMMemAllocator::NewExtent(PageType type) {
   PMExtent* pe;
   int cur_extent_id = pages.size();
-  assert(cur_extent_id < options_.pm_size_ / options_.extent_size_);
+  if(cur_extent_id >= options_.pm_size_ / options_.extent_size_){
+    printf("out of pm memory size!!!, please reserve enough space for GC\n");
+    assert(false);
+  }
   if (type == key_t) {
     pe = new PMExtent(kPage_count_, kPage_size_, (char*)getAbsoluteAddr(((uint64_t)cur_extent_id) * options_.extent_size_));
     pages.push_back(pe);

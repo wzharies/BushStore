@@ -7,6 +7,8 @@ GB=$(($MB*1024))
 
 db_bench=./build
 benchmarks="overwrite,readrandom"
+sata_path=/home/wzh/pm_test
+ssd_path=/media/nvme1/pm_test
 leveldb_path=/tmp/leveldb-wzh
 pm_path=/mnt/pmem0.1/pm_test
 
@@ -21,7 +23,9 @@ use_pm=1
 flush_ssd=0
 
 WRITE10G() {
-    leveldb_path=$pm_path;
+    pm_path=$sata_path
+    leveldb_path=$sata_path
+    # leveldb_path=$pm_path;
     value_size=1000
     num_thread=1
     num_kvs=$((10*$MB))
@@ -42,13 +46,15 @@ WRITE80G_FLUSHSSD() {
     flush_ssd=1
 }
 WRITE80G() {
-    leveldb_path=$pm_path;
+    pm_path=$ssd_path
+    leveldb_path=$ssd_path
+    # leveldb_path=$pm_path;
     value_size=1000
     num_thread=1
     num_kvs=$((80*$MB))
     write_buffer_size=$((20*$MB))
     max_file_size=$((1024*$MB))
-    pm_size=$((160*$GB))
+    pm_size=$((200*$GB))
     bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
     use_pm=1
 }
@@ -59,7 +65,7 @@ WRITE80G-4K() {
     num_kvs=$((20*$MB))
     write_buffer_size=$((5*$MB))
     max_file_size=$((1024*$MB))
-    pm_size=$((160*$GB))
+    pm_size=$((200*$GB))
     bucket_nums=$((8*$MB)) # bucket_nums * 4 > nums_kvs
     use_pm=1
 }
@@ -106,7 +112,7 @@ MAKE() {
 
 SETUP
 MAKE
-WRITE10G
+WRITE80G-4K
 cd ..
 $APP_PREFIX $db_bench/db_bench --benchmarks=$benchmarks --num=$num_kvs \
 --value_size=$value_size --write_buffer_size=$write_buffer_size --max_file_size=$max_file_size \
@@ -117,3 +123,6 @@ SETUP
 # $APP_PREFIX $DBBENCH/db_bench --threads=$NUMTHREAD --num=$NUMKEYS --value_size=$VALUSESZ \
 # $OTHERPARAMS --num_read_threads=$NUMREADTHREADS
 
+# sudo cp build/libleveldb.a /usr/local/lib/
+# sudo cp -r include/leveldb /usr/local/include/
+# -exec break __sanitizer::Die

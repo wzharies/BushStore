@@ -245,8 +245,8 @@ class DBImpl : public DB {
   CuckooFilter* cuckoo_filter_;
 
   PMMemAllocator * pmAlloc_;
-  bool needGC = false;
-  bool flushSSD = false;
+  std::atomic<bool> needGC = false;
+  std::atomic<bool> flushSSD = false;
   int gcCount = 0;
   std::vector<std::shared_ptr<lbtree>> Table_L0_;
   std::vector<std::shared_ptr<lbtree>> Table_LN_;
@@ -255,8 +255,9 @@ class DBImpl : public DB {
   std::mutex mutex_l1_;
   std::condition_variable conVar_;
   std::mutex mergeMutex_;
-  std::thread compactionThread_;
   key_type new_start_key_ = 0;
+  double usage_;
+  std::thread compactionThread_;
 public:
   ReadStats readStats_;
 };
