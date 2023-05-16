@@ -9,8 +9,6 @@
 #include "bplustree/bptree.h"
 #include "util/global.h"
 namespace leveldb{
-
-constexpr int VPAGE_CAPACITY = 512 * 1024;
 class vPageWriteDirect {
 public:
   vPageWriteDirect(){
@@ -91,6 +89,7 @@ public:
   void flush_vpage(){
     assert(page_buffer_->nums() + 4 == value_nums_);
     page_buffer_->capacity() = value_nums_;
+    writeByte_ += VPAGE_CAPACITY;
     if(pm_alloc_->options_.use_pm_){
         pmem_memcpy_persist(page_pm_, page_buffer_, VPAGE_CAPACITY);
     }else{
@@ -112,12 +111,14 @@ public:
     assert(value_nums_ >= 4);
     return std::make_tuple(pointer, value_nums_++);
   }
+  uint64_t getWriteByte() { return writeByte_; }
 private: 
   PMMemAllocator* pm_alloc_ = nullptr;
   vPage* page_buffer_ = nullptr;
   char* page_pm_ = nullptr;
   int value_offset_ = VPAGE_CAPACITY;
   int value_nums_ = 4;
+  uint64_t writeByte_ = 0;
 };
 
 class PMTableBuilder{
@@ -132,6 +133,7 @@ public:
     void setMinKey(const Slice& key);
     std::tuple<std::vector<std::vector<void *>>, kPage*, kPage*> finish(std::shared_ptr<lbtree> &tree);
     void initPreMalloc(uint64_t kvNums);
+    uint64_t getWriteByte() { return writeByte_ + write_.getWriteByte(); }
 
     // uint64_t GetFileSize(){
     //     return offset_;
@@ -178,6 +180,7 @@ private:
 
     // uint64_t used_pm_;
     uint64_t kPage_count_;
+    uint64_t writeByte_;
 
     // uint64_t begin_offset_;
     // uint64_t keys_meta_size_;

@@ -7,6 +7,7 @@
 #include <cassert>
 
 #include "leveldb/table_builder.h"
+#include "util/global.h"
 
 namespace leveldb {
 
@@ -38,14 +39,14 @@ PMMemAllocator::PMMemAllocator(const Options& options) : options_(options), new_
     base_addr = reinterpret_cast<uint64_t>(addr);
   }
 
-  kPage_slot_count_ = (256 - 16) / 6;
+  kPage_slot_count_ = (256 - 16) / 8;
   kPage_size_ =
       SuitablePageSize(256 + kPage_slot_count_ * 16);
   //算上bitmap的空间, 减去bitmap->num的8Byte，然后每个kpage多用了1bit
   kPage_count_ = calPageCount(options_.extent_size_, kPage_size_);
 
-  vPage_slot_count_ = (256 - 16) / 4;
-  vPage_size_ = 512 * 1024;
+  // vPage_slot_count_ = (256 - 16) / 4;
+  vPage_size_ = VPAGE_CAPACITY;
       // SuitablePageSize(256 + vPage_slot_count_ * (8 + options_.value_size_));
   vPage_count_ = calPageCount(options_.extent_size_, vPage_size_);
 }

@@ -12,6 +12,13 @@
 
 namespace leveldb {
 
+static uint64_t NowMicros() {
+    static constexpr uint64_t kUsecondsPerSecond = 1000000;
+    struct ::timeval tv;
+    ::gettimeofday(&tv, nullptr);
+    return static_cast<uint64_t>(tv.tv_sec) * kUsecondsPerSecond + tv.tv_usec;
+}
+
 MemTable::MemTable(const InternalKeyComparator& comparator)
     : comparator_(comparator), refs_(0), table_(comparator_, &arena_), kvCount_(0) {}
 
@@ -76,16 +83,25 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   table_.Insert(buf);
   kvCount_++;
 }
+bool MemTable::Get(const LookupKey& key, std::string* value, Status* s, ReadStats& stats){
+  uint64_t startTime;
+  uint64_t endTime;
+  if(READ_TIME_ANALYSIS){
+    startTime = NowMicros();
+  }
+  bool ret = Get(key, value, s);
+  if(READ_TIME_ANALYSIS){
+    endTime = NowMicros();
+    stats.readMemTime += (endTime - startTime);
+    stats.readMemCount ++;
+  }
+  return ret;
+}
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
   Slice memkey = key.memtable_key();
   Table::Iterator iter(&table_);
   iter.Seek(memkey.data());
-
-  auto getValue = [](uint32_t &pointer, uint16_t &index){
-    vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
-    return vp->v(index);
-  };
 
   auto getValueFromAddr = [](const char* p){
     uint32_t pointer = DecodeFixed32(p);

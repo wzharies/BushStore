@@ -30,7 +30,7 @@ namespace ycsbc {
         options->create_if_missing = true;
         options->compression = leveldb::kNoCompression;
 
-        printf("set MioDB options!\n");
+        // printf("set MioDB options!\n");
         // options->nvm_node = 0;
         // options->nvm_next_node = -1;
         

@@ -71,6 +71,7 @@ class MemTable {
   // Else, return false.
   bool Get(const LookupKey& key, std::string* value, Status* s);
 
+  bool Get(const LookupKey& key, std::string* value, Status* s, ReadStats& stats);
  private:
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;

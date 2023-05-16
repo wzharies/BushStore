@@ -21,6 +21,7 @@
 #include "util/cuckoo_filter.h"
 #include "bplustree/bptree.h"
 #include "table/pm_mem_alloc.h"
+#include "util/global.h"
 
 namespace leveldb {
 
@@ -103,26 +104,6 @@ class DBImpl : public DB {
     int64_t micros;
     int64_t bytes_read;
     int64_t bytes_written;
-  };
-
-  struct ReadStats {
-    int64_t readCount = 0;
-    int64_t readRight = 0;
-    int64_t readWrong = 0;
-    int64_t readNotFound = 0;
-    int64_t readL0Found = 0;
-    int64_t readL1Found = 0;
-    int64_t readL2Found = 0;
-    int64_t readExpire = 0;
-    std::string getStats(){
-      std::string s;
-      s = s + "count : " + std::to_string(readCount)
-            + "right : " + std::to_string(readRight)
-            + "wrong : " + std::to_string(readWrong)
-            + "notfound  : " + std::to_string(readNotFound)
-            + "expire : " + std::to_string(readExpire);
-      return s;
-    }
   };
 
   Iterator* NewInternalIterator(const ReadOptions&,
@@ -258,6 +239,11 @@ class DBImpl : public DB {
   key_type new_start_key_ = 0;
   double usage_;
   std::thread compactionThread_;
+  std::atomic<int> lastCompactL0Time_ = 0;
+  std::atomic<int> lastCompactL1Time_ = 0;
+  std::atomic<size_t> compactL0Count_ = 2;
+  std::atomic<size_t> curMemtableSize_;
+  size_t maxMemtableSize_;
 public:
   ReadStats readStats_;
 };

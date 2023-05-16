@@ -180,7 +180,7 @@ class PMMemAllocator {
   std::vector<PMExtent*> pages;
   uint64_t kPage_slot_count_;
   uint64_t kPage_count_;
-  uint64_t vPage_slot_count_;
+  // uint64_t vPage_slot_count_;
   uint64_t vPage_count_;
 
   size_t mapped_len_;

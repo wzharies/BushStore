@@ -41,7 +41,7 @@ namespace leveldb {
 #error "LB+-Tree requires leaf node size to be 256B."
 #endif
 
-#define LEAF_KEY_NUM (29)
+#define LEAF_KEY_NUM (30)
 #define LEAF_VALUE_NUM (60)
 
 // at most 1 of the following 2 macros may be defined
@@ -124,10 +124,9 @@ typedef struct bnodeMeta
 } bnodeMeta;
 
 // bnode
-class kPage{
-public:
+struct kPage{
     uint64_t next;
-    uint64_t bitmap : LEAF_KEY_NUM;
+    // uint64_t bitmap : LEAF_KEY_NUM;
     // uint64_t lock : 1;
     // uint64_t alt : 1;
     uint64_t nums;

@@ -73,7 +73,7 @@ void PMTableBuilder::initPreMalloc(uint64_t kvNums){
 }
 
 PMTableBuilder::PMTableBuilder(PMMemAllocator* pm_alloc, char* node_mem, uint64_t kvNums)\
-     : pm_alloc_(pm_alloc), node_mem_(node_mem), cur_node_index_(0), kPage_count_(0), max_key_(0){
+     : pm_alloc_(pm_alloc), node_mem_(node_mem), cur_node_index_(0), kPage_count_(0), max_key_(0), writeByte_(0){
     write_.setPMAllocator(pm_alloc);
     key_buf_ = (kPage*)calloc(1, max_size);
     // value_buf_ = (vPage*)calloc(1, max_size);
@@ -116,6 +116,7 @@ void PMTableBuilder::flush_kpage(){
     last_kpage_ = new_page;
     // used_pm_ += pm_alloc_->kPage_size_;
     pages[0].push_back(new_page);
+    writeByte_ += key_offset_;
     if(pm_alloc_->options_.use_pm_){
         pmem_memcpy_persist(new_page, key_buf_, key_offset_);
     }else {
@@ -164,6 +165,7 @@ void PMTableBuilder::flush_kpage(){
 //这种为重写的情况，传入的时候保证pointer为相对地址
 void PMTableBuilder::add(const Slice& key, uint32_t pointer, uint16_t index){
     // key_count_++;
+    // writeByte_ += key.size();
     key_type key64 = DecodeDBBenchFixed64(key.data());
     assert(max_key_ <= key64);
     key_buf_->finger[key_buf_->nums] = hashcode2B(key64);;
@@ -175,7 +177,7 @@ void PMTableBuilder::add(const Slice& key, uint32_t pointer, uint16_t index){
     key_offset_ += (key.size());
     // std::cout<<key_buf_->max_key<<std::endl;
     if(key_buf_->nums == LEAF_KEY_NUM){
-        key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
+        // key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         flush_kpage();
     }
 }
@@ -183,6 +185,7 @@ void PMTableBuilder::add(const Slice& key, uint32_t pointer, uint16_t index){
 //这种为重写的情况，传入的时候保证pointer为相对地址
 void PMTableBuilder::add(const Slice& key, uint16_t finger, uint32_t pointer, uint16_t index){
     // key_count_++;
+    // writeByte_ += key.size();
     key_type key64 = DecodeDBBenchFixed64(key.data());
     assert(max_key_ <= key64);
     key_buf_->finger[key_buf_->nums] = finger;
@@ -194,7 +197,7 @@ void PMTableBuilder::add(const Slice& key, uint16_t finger, uint32_t pointer, ui
     key_offset_ += (key.size());
     // std::cout<<key_buf_->max_key<<std::endl;
     if(key_buf_->nums == LEAF_KEY_NUM){
-        key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
+        // key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         flush_kpage();
     }
 }
@@ -202,7 +205,7 @@ void PMTableBuilder::add(const Slice& key, uint16_t finger, uint32_t pointer, ui
 //这种为新写入的情况，需要保证传入的pointer为相对地址
 void PMTableBuilder::add(const Slice& key, const Slice& value, uint16_t finger){
     // key_count_++;
-
+    // writeByte_ += (key.size() + value.size());
     auto [pointer, index] = write_.writeValue(key, value);
 
     key_type key64 = DecodeDBBenchFixed64(key.data());
@@ -224,7 +227,7 @@ void PMTableBuilder::add(const Slice& key, const Slice& value, uint16_t finger){
     // value_offset_ = value_buf_->setv(value_buf_->alloc_num++, value_offset_, value);
 
     if(key_buf_->nums == LEAF_KEY_NUM){
-        key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
+        // key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         flush_kpage();
     }
     // if(value_buf_->alloc_num == LEAF_VALUE_NUM){
@@ -246,7 +249,7 @@ std::tuple<std::vector<std::vector<void *>>, kPage*, kPage*> PMTableBuilder::fin
     key_type lastKey = 0;
     Pointer8B lastAddr = Pointer8B(0);
     if(key_buf_->nums != 0){
-        key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
+        // key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         kPage* new_page = (kPage*)mallocKpage();
         lastPage = new_page;
         if (last_kpage_ != nullptr) {
@@ -255,6 +258,7 @@ std::tuple<std::vector<std::vector<void *>>, kPage*, kPage*> PMTableBuilder::fin
         last_kpage_ = new_page;
         // used_pm_ += pm_alloc_->kPage_size_;
         pages[0].push_back(new_page);
+        writeByte_ += key_offset_;
         if(pm_alloc_->options_.use_pm_){
             pmem_memcpy_persist(new_page, key_buf_, key_offset_);
         }else {

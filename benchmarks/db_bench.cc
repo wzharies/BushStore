@@ -65,7 +65,7 @@ static const char* FLAGS_benchmarks =
     "snappyuncomp,";
 
 // Number of key/values to place in database
-static int FLAGS_num = 20 * 1024 * 1024;
+static int FLAGS_num = 10 * 1024 * 1024;
 
 // Number of read operations to do.  If negative, do FLAGS_num reads.
 static int FLAGS_reads = -1;
@@ -74,7 +74,7 @@ static int FLAGS_reads = -1;
 static int FLAGS_threads = 1;
 
 // Size of each value
-static int FLAGS_value_size = 4096;
+static int FLAGS_value_size = 4 * 1024;
 
 // Arrange to generate values that shrink to this fraction of
 // their original size after compression
@@ -125,10 +125,10 @@ static const char* FLAGS_db = "/mnt/pmem0.1/pm_test";
 
 static char* PM_PATH = nullptr;
 // static size_t VALUE_SIZE = 4096;
-static uint64_t PM_SIZE = 64ULL * 1024 * 1024 * 1024;
+static uint64_t PM_SIZE = 200ULL * 1024 * 1024 * 1024;
 static uint64_t EXTENT_SIZE = 512 * 1024 * 1024;
 static bool USE_PM = true;
-static bool FLUSH_SSD = true;
+static bool FLUSH_SSD = false;
 static uint64_t BUCKET_NUMS = 8 * 1024 * 1024;
 
 namespace leveldb {
@@ -803,12 +803,11 @@ class Benchmark {
     if(PM_PATH != nullptr){
       options.pm_path_ = PM_PATH;
     }
-    options.value_size_ = FLAGS_value_size;
+    // options.value_size_ = FLAGS_value_size;
     options.use_pm_ = USE_PM;
     options.pm_size_ = PM_SIZE;
     options.extent_size_ = EXTENT_SIZE;
     options.flush_ssd = FLUSH_SSD;
-    std::cout<<FLAGS_db<<std::endl;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       std::fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -864,23 +863,23 @@ class Benchmark {
     Iterator* iter = db_->NewIterator(ReadOptions());
     int i = 0;
     int64_t bytes = 0;
-    key_type lastKey = 0;
+    // key_type lastKey = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
-      key_type newkey = DecodeDBBenchFixed64(iter->key().data());
-      if(newkey != lastKey + 1){
-        // printf("%lu between %lu not fount!\n", lastKey, newkey);
-      }
-      lastKey = newkey;
+      // key_type newkey = DecodeDBBenchFixed64(iter->key().data());
+      // if(newkey != lastKey + 1){
+      //   printf("%lu between %lu not fount!\n", lastKey, newkey);
+      // }
+      // lastKey = newkey;
       bytes += iter->key().size() + iter->value().size();
       thread->stats.FinishedSingleOp();
       ++i;
     }
-    printf("endkey %lu\n", lastKey);
+    // printf("endkey %lu\n", lastKey);
     delete iter;
     thread->stats.AddBytes(bytes);
-    // char msg[100];
-    // std::snprintf(msg, sizeof(msg), "found %d", i);
-    printf("found :%d kv\n", i);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%d found)", i);
+    thread->stats.AddMessage(msg);
   }
 
   void ReadReverse(ThreadState* thread) {
@@ -901,16 +900,20 @@ class Benchmark {
     int found = 0;
     int wrong = 0;
     KeyBuffer key;
+    int64_t bytes = 0;
     for (int i = 0; i < reads_; i++) {
       const int k = i;
       // const int k = thread->rand.Uniform(FLAGS_num);
       key.Set(k);
       if (db_->Get(options, key.slice(), &value).ok()) {
-        uint64_t k_temp = DecodeFixed64(value.c_str());
-        if(k == k_temp)
-          found++;
-        else
-          wrong++;
+        found++;
+        bytes += key.slice().size() + value.size();
+
+        // uint64_t k_temp = DecodeFixed64(value.c_str());
+        // if(k == k_temp)
+        //   found++;
+        // else
+        //   wrong++;
       }
       // else{
       //   printf("%d not found.\n", k);
@@ -918,7 +921,8 @@ class Benchmark {
       // }
       thread->stats.FinishedSingleOp();
     }
-    std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
+    thread->stats.AddBytes(bytes);
+    // std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
     char msg[100];
     std::snprintf(msg, sizeof(msg), "(%d of %d found), %d wrong", found, num_, wrong);
     thread->stats.AddMessage(msg);
@@ -930,23 +934,26 @@ class Benchmark {
     int found = 0;
     int wrong = 0;
     KeyBuffer key;
+    int64_t bytes = 0;
     for (int i = 0; i < reads_; i++) {
       const int k = (thread->rand.Next() % FLAGS_num);
       // const int k = thread->rand.Uniform(FLAGS_num);
       key.Set(k);
       if (db_->Get(options, key.slice(), &value).ok()) {
-        // found++;
-        uint64_t k_temp = DecodeFixed64(value.c_str());
-        if(k == k_temp)
-          found++;
-        else
-          wrong++;
+        bytes += key.slice().size() + value.size();
+        found++;
+        // uint64_t k_temp = DecodeFixed64(value.c_str());
+        // if(k == k_temp)
+        //   found++;
+        // else
+        //   wrong++;
       }
       // else{
       //   printf("%d not found.\n", k);
       // }
       thread->stats.FinishedSingleOp();
     }
+    thread->stats.AddBytes(bytes);
     std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
     char msg[100];
     std::snprintf(msg, sizeof(msg), "(%d of %d found), %d wrong", found, num_, wrong);
