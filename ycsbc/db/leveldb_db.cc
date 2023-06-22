@@ -7,6 +7,7 @@
 
 #include "leveldb_db.h"
 #include "lib/coding.h"
+#include "core/utils.h"
 
 using namespace std;
 
@@ -30,6 +31,9 @@ namespace ycsbc {
         options->create_if_missing = true;
         options->compression = leveldb::kNoCompression;
 
+        std::string pm_path = props.GetProperty("pmpath","/tmp/test-leveldb");
+        options->pm_path_ = pm_path;
+        options->flush_ssd = utils::StrToBool(props["flushssd"]);;
         // printf("set MioDB options!\n");
         // options->nvm_node = 0;
         // options->nvm_next_node = -1;

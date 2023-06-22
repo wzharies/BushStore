@@ -129,6 +129,7 @@ static uint64_t PM_SIZE = 200ULL * 1024 * 1024 * 1024;
 static uint64_t EXTENT_SIZE = 512 * 1024 * 1024;
 static bool USE_PM = true;
 static bool FLUSH_SSD = false;
+static bool Throughput = false;
 static uint64_t BUCKET_NUMS = 8 * 1024 * 1024;
 
 namespace leveldb {
@@ -827,6 +828,8 @@ class Benchmark {
 
   void WriteRandom(ThreadState* thread) { DoWrite(thread, false); }
 
+  const int BUFFER_SIZE = 4096; // 缓冲区大小
+
   void DoWrite(ThreadState* thread, bool seq) {
     if (num_ != FLAGS_num) {
       char msg[100];
@@ -838,19 +841,40 @@ class Benchmark {
     WriteBatch batch;
     Status s;
     int64_t bytes = 0;
+    int64_t bytes_this_batch = 0;
     KeyBuffer key;
+
+    auto start_time = std::chrono::steady_clock::now();
+    auto last_report_time = start_time;
+    long long bytes_this_second = 0;
+
     for (int i = 0; i < num_; i += entries_per_batch_) {
       batch.Clear();
+      bytes_this_batch = 0;
       for (int j = 0; j < entries_per_batch_; j++) {
         const int k = seq ? i + j : (thread->rand.Next() % FLAGS_num);
         // const int k = seq ? i + j : thread->rand.Uniform(FLAGS_num);
         key.Set(k);
         batch.Put(key.slice(), gen.GenerateWithKey(value_size_, k));
         // batch.Put(key.slice(), gen.Generate(value_size_));
-        bytes += value_size_ + key.slice().size();
+        bytes_this_batch += value_size_ + key.slice().size();
         thread->stats.FinishedSingleOp();
       }
       s = db_->Write(write_options_, &batch);
+      if(Throughput){
+        bytes_this_second += bytes_this_batch;
+        auto now = std::chrono::steady_clock::now();
+        auto cur_elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
+        auto last_elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(last_report_time - start_time).count();
+        auto diff_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_report_time).count();
+        if (cur_elapsed_time / 1000 != last_elapsed_time / 1000) {
+          double throughput = bytes_this_second * 1.0 / 1000 / 1000 / (diff_time / 1000.0);
+          std::cout << "Throughput " << cur_elapsed_time / 1000 << " second: " << throughput << " MB per second" << std::endl;
+          last_report_time = now;
+          bytes_this_second = 0;
+        }
+      }
+      bytes += bytes_this_batch;
       if (!s.ok()) {
         std::fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         std::exit(1);
@@ -954,7 +978,7 @@ class Benchmark {
       thread->stats.FinishedSingleOp();
     }
     thread->stats.AddBytes(bytes);
-    std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
+    // std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
     char msg[100];
     std::snprintf(msg, sizeof(msg), "(%d of %d found), %d wrong", found, num_, wrong);
     thread->stats.AddMessage(msg);
@@ -1181,6 +1205,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--flush_ssd=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLUSH_SSD = n;
+    } else if (sscanf(argv[i], "--throughput=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      Throughput = n;
     } else if (strncmp(argv[i], "--db=", 5) == 0) {
       FLAGS_db = argv[i] + 5;
     } else {

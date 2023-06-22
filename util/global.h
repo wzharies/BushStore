@@ -30,9 +30,9 @@ constexpr int L0BufferCount = 25;
 // compile
 constexpr bool CUCKOO_FILTER = true;
 constexpr bool DEBUG_CHECK = false;
-constexpr bool DEBUG_PRINT = true;
+constexpr bool DEBUG_PRINT = false;
 constexpr bool TIME_ANALYSIS = true;
-constexpr bool READ_TIME_ANALYSIS = true;
+constexpr bool READ_TIME_ANALYSIS = false;
 
   struct ReadStats {
     int64_t readCount = 0;

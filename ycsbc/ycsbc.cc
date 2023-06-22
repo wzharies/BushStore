@@ -21,6 +21,97 @@
 
 using namespace std;
 
+class OneMeasurementHistogram
+{
+public:
+	int BUCKETS_DEFAULT=1000000;
+
+	int _buckets;
+	int *histogram;
+	int histogramoverflow;
+	int operations;
+	long totallatency;
+	
+	int min;
+	int max;
+
+	OneMeasurementHistogram()
+	{
+    _buckets = BUCKETS_DEFAULT;
+		histogram=new int[BUCKETS_DEFAULT];
+		histogramoverflow=0;
+		operations=0;
+		totallatency=0;
+		min=-1;
+		max=-1;
+	}
+
+  ~OneMeasurementHistogram(){
+    delete []histogram;
+  }
+
+	void measure(int latency)
+	{
+		if (latency/1>=_buckets)
+		{
+			histogramoverflow++;
+		}
+		else
+		{
+			histogram[latency/1]++;
+		}
+		operations++;
+		totallatency+=latency;
+
+		if ( (min<0) || (latency<min) )
+		{
+			min=latency;
+		}
+
+		if ( (max<0) || (latency>max) )
+		{
+			max=latency;
+		}
+	}
+
+  void exportMeasurements()
+  {
+    printf("Operations: %d\n", operations);
+    printf("AverageLatency(us): %.3lf\n", (((double)totallatency)/((double)operations)));
+    printf("MinLatency(us): %d\n", min);
+    printf("MaxLatency(us): %d\n", max);
+    
+    int opcounter=0;
+    bool done95th=false;
+    bool done99th=false;
+    bool done999th=false;
+    for (int i=0; i<_buckets; i++)
+    {
+      opcounter+=histogram[i];
+      if ( (!done95th) && (((double)opcounter)/((double)operations)>=0.95) )
+      {
+        printf( "95thPercentileLatency(us): %d \n", i * 1);
+        done95th=true;
+      }
+      if ( (!done99th) && ((double)opcounter)/((double)operations)>=0.99)
+      {
+        printf( "99thPercentileLatency(us): %d \n", i * 1);
+        done99th=true;
+      }
+      if ( (!done999th) && ((double)opcounter)/((double)operations)>=0.999)
+      {
+        printf( "99.9thPercentileLatency(us): %d \n", i * 1);
+        done999th=true;
+      }
+      if (((double)opcounter)/((double)operations)>=0.9999)
+      {
+        printf( "99.99thPercentileLatency(us): %d \n", i * 1);
+        break;
+      }
+    }
+  }
+};
+
 ////statistics
 uint64_t ops_cnt[ycsbc::Operation::READMODIFYWRITE + 1] = {0};    //操作个数
 uint64_t ops_time[ycsbc::Operation::READMODIFYWRITE + 1] = {0};   //微秒
@@ -34,16 +125,17 @@ void Init(utils::Properties &props);
 void PrintInfo(utils::Properties &props);
 
 int DelegateClient(ycsbc::DB *db, ycsbc::CoreWorkload *wl, const int num_ops,
-    bool is_loading, bool time_series) {
+    bool is_loading, bool time_series, bool latency) {
   db->Init();
   ycsbc::Client client(*db, *wl);
   int oks = 0;
   int next_report_ = 0;
   uint64_t start, end, sum;
-  if (time_series) {
+  if (time_series || latency) {
     sum = 0;
     start = get_now_micros();
   }
+  OneMeasurementHistogram measure;
   for (int i = 0; i < num_ops; ++i) {
     if (i >= next_report_) {
         if      (next_report_ < 1000)   next_report_ += 100;
@@ -61,6 +153,12 @@ int DelegateClient(ycsbc::DB *db, ycsbc::CoreWorkload *wl, const int num_ops,
     } else {
       oks += client.DoTransaction();
     }
+    if (latency) {
+      end = get_now_micros();
+      int tmp = end - start - sum;
+      measure.measure(tmp);
+      sum += tmp;
+    }
     if (time_series && i % 100 == 0) {
       end = get_now_micros();
       int tmp = end - start - sum;
@@ -69,6 +167,7 @@ int DelegateClient(ycsbc::DB *db, ycsbc::CoreWorkload *wl, const int num_ops,
     }
   }
   db->Close();
+  measure.exportMeasurements();
   return oks;
 }
 
@@ -111,6 +210,8 @@ int main(const int argc, const char *argv[]) {
     const bool print_stats = utils::StrToBool(props["dbstatistics"]);
     // const bool wait_for_balance = utils::StrToBool(props["dbwaitforbalance"]);
     const bool time_series = utils::StrToBool(props["timeseries"]);
+    const bool latency = utils::StrToBool(props["latency"]);
+
 
     vector<future<int>> actual_ops;
     int total_ops = 0;
@@ -128,7 +229,7 @@ int main(const int argc, const char *argv[]) {
       total_ops = stoi(props[ycsbc::CoreWorkload::RECORD_COUNT_PROPERTY]);
       for (int i = 0; i < num_threads; ++i) {
         actual_ops.emplace_back(async(launch::async,
-            DelegateClient, db, &wl, total_ops / num_threads, true, time_series));
+            DelegateClient, db, &wl, total_ops / num_threads, true, time_series, latency));
       }
       assert((int)actual_ops.size() == num_threads);
 
@@ -142,7 +243,7 @@ int main(const int argc, const char *argv[]) {
       printf("********** load result **********\n");
       printf("loading records:%d  use time:%.3f s  IOPS:%.2f iops\n", sum, 1.0 * use_time*1e-6, 1.0 * sum * 1e6 / use_time );
       printf("*********************************\n");
-    } 
+    }
     if( run ) {
       // Peforms transactions
       ycsbc::CoreWorkload wl;
@@ -153,7 +254,7 @@ int main(const int argc, const char *argv[]) {
       uint64_t run_start = get_now_micros();
       for (int i = 0; i < num_threads; ++i) {
         actual_ops.emplace_back(async(launch::async,
-            DelegateClient, db, &wl, total_ops / num_threads, false, time_series));
+            DelegateClient, db, &wl, total_ops / num_threads, false, time_series, latency));
       }
       assert((int)actual_ops.size() == num_threads);
       sum = 0;
@@ -224,6 +325,14 @@ string ParseCommandLine(int argc, const char *argv[], utils::Properties &props) 
         exit(0);
       }
       props.SetProperty("dbname", argv[argindex]);
+      argindex++;
+    } else if (strcmp(argv[argindex], "-pmpath") == 0) {
+      argindex++;
+      if (argindex >= argc) {
+        UsageMessage(argv[0]);
+        exit(0);
+      }
+      props.SetProperty("pmpath", argv[argindex]);
       argindex++;
     } else if (strcmp(argv[argindex], "-host") == 0) {
       argindex++;
@@ -321,6 +430,22 @@ string ParseCommandLine(int argc, const char *argv[], utils::Properties &props) 
       }
       props.SetProperty("timeseries",argv[argindex]);
       argindex++;
+    } else if(strcmp(argv[argindex],"-flushssd")==0){
+      argindex++;
+      if(argindex >= argc){
+        UsageMessage(argv[0]);
+        exit(0);
+      }
+      props.SetProperty("flushssd",argv[argindex]);
+      argindex++;
+    } else if(strcmp(argv[argindex],"-latency")==0){
+      argindex++;
+      if(argindex >= argc){
+        UsageMessage(argv[0]);
+        exit(0);
+      }
+      props.SetProperty("latency",argv[argindex]);
+      argindex++;
     } else {
       cout << "Unknown option '" << argv[argindex] << "'" << endl;
       exit(0);
@@ -351,12 +476,16 @@ inline bool StrStartWith(const char *str, const char *pre) {
 void Init(utils::Properties &props){
   props.SetProperty("dbname","basic");
   props.SetProperty("dbpath","");
+  props.SetProperty("pmpath","");
   props.SetProperty("load","false");
   props.SetProperty("run","false");
   props.SetProperty("threadcount","1");
   props.SetProperty("dboption","0");
   props.SetProperty("dbstatistics","false");
   props.SetProperty("dbwaitforbalance","false");
+  props.SetProperty("timeseries","false");
+  props.SetProperty("flushssd","false");
+  props.SetProperty("latency","false");
 }
 
 void PrintInfo(utils::Properties &props) {
