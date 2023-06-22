@@ -1,5 +1,5 @@
 CC=/usr/bin/g++
-CFLAGS=-std=c++17 -g -Wall -pthread -I./
+CXXFLAGS=-std=c++17 -g -o2 -Wall -pthread -I./
 LDFLAGS= -lpthread -lleveldb -lz -lsnappy -lnuma -lpmem
 SUBDIRS= core db 
 SUBSRCS=$(wildcard core/*.cc) $(wildcard db/*.cc)
@@ -12,7 +12,7 @@ $(SUBDIRS):
 	$(MAKE) -C $@
 
 $(EXEC): $(wildcard *.cc) $(OBJECTS)
-	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+	$(CC) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
 clean:
 	for dir in $(SUBDIRS); do \

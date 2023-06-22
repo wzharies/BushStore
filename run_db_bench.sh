@@ -168,7 +168,7 @@ RUN_DB_BENCH() {
 RUN_YCSB(){
     CLEAN_DB
     if [ -f "$output_file" ]; then
-        rm "output_file"
+        rm $output_file
         echo "delete output_file: $output_file"
     fi
     cmd="$APP_PREFIX $ycsb_path/ycsbc $ycsb_path/input/$ycsb_input >> $output_file"
@@ -196,7 +196,7 @@ CLEAN_DB() {
 SET_OUTPUT_PATH() {
     if [ ! -d "$output_path" ]; then
         # 如果目录不存在，则创建目录
-        mkdir "$output_path"
+        mkdir $output_path
         echo "Created output_path: $output_path"
     fi
     # else
@@ -211,7 +211,7 @@ SET_OUTPUT_PATH() {
 MAKE() {
   if [ ! -d "$db_bench" ]; then
     # 如果目录不存在，则创建目录
-    mkdir "$db_bench"
+    mkdir $db_bench
   fi
   cd $db_bench
   cmake -DCMAKE_BUILD_TYPE=Release .. 

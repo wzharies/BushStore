@@ -15,7 +15,7 @@ namespace leveldb {
 constexpr int VPAGE_CAPACITY = 512 * 1024;
 constexpr int MAX_FILE_NUM = 2;
 constexpr int MAX_BNODE_NUM = 150;
-constexpr int TASK_COUNT = 64;
+constexpr int TASK_COUNT = 1;
 constexpr int max_size = 64 * 1024;
 constexpr bool use_pm = true;
 constexpr double memory_rate = 0.75;
@@ -28,7 +28,7 @@ constexpr int maxMergeCount = 15;
 constexpr int L0BufferCount = 25;
 
 // compile
-constexpr bool CUCKOO_FILTER = true;
+constexpr bool CUCKOO_FILTER = false;
 constexpr bool DEBUG_CHECK = false;
 constexpr bool DEBUG_PRINT = false;
 constexpr bool TIME_ANALYSIS = true;
