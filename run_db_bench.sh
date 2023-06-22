@@ -286,7 +286,13 @@ DB_BENCH_TEST() {
 DB_BENCH_THROUGHPUT() {
     echo "------------db_bench------------"
     benchmarks="fillrandom,stats"
+
     echo "------1K random write/read-----"
+    output_file=$output_path/Throughput_Rnd_NVM_1KB
+    WRITE80G-1KB-THROUGHPUT
+    RUN_DB_BENCH
+
+    echo "------4K random write/read-----"
     output_file=$output_path/Throughput_Rnd_NVM_4KB
     WRITE80G-4KB-THROUGHPUT
     RUN_DB_BENCH
@@ -368,6 +374,73 @@ YCSB_TEST_SSD(){
     cd ..
 }
 
+CUCKOO_FILTER_ANALYSIS(){
+    echo "------cuckoo filter analysis-------"
+    benchmarks="fillseq,readwhilewriting,stats"
+    echo "---- with cuckoo filter ----"
+    sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' $db_path/util/global.h
+    MAKE
+    output_file=$output_path/Cuckoo_Filter_No_RW_NVM_4K
+    WRITE80G-4K
+    RUN_DB_BENCH
+
+    echo "---- without cuckoo filter ----"
+    sed -i 's/CUCKOO_FILTER = false/CUCKOO_FILTER = true/g' $db_path/util/global.h
+    MAKE
+    output_file=$output_path/Cuckoo_Filter_Yes_RW_NVM_4K
+    WRITE80G-4K
+    RUN_DB_BENCH
+}
+
+THREAD_COUNT_ANALYSIS(){
+    echo "------thread count analysis-------"
+    benchmarks="fillrandom,stats"
+    echo "---- 1 thread ----"
+    sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 1/g' $db_path/util/global.h
+    MAKE
+    output_file=$output_path/Thead_1_Rnd_W_8GNVM_4K
+    WRITE80G_8GNVM
+    RUN_DB_BENCH
+
+    echo "---- 4 thread ----"
+    sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 4/g' $db_path/util/global.h
+    MAKE
+    output_file=$output_path/Thead_4_Rnd_W_8GNVM_4K
+    WRITE80G_8GNVM
+    RUN_DB_BENCH
+
+    echo "---- 8 thread ----"
+    sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 8/g' $db_path/util/global.h
+    MAKE
+    output_file=$output_path/Thead_8_Rnd_W_8GNVM_4K
+    WRITE80G_8GNVM
+    RUN_DB_BENCH
+
+    echo "---- 16 thread ----"
+    sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 16/g' $db_path/util/global.h
+    MAKE
+    output_file=$output_path/Thead_16_Rnd_W_8GNVM_4K
+    WRITE80G_8GNVM
+    RUN_DB_BENCH
+
+    echo "---- 32 thread ----"
+    sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 32/g' $db_path/util/global.h
+    MAKE
+    output_file=$output_path/Thead_32_Rnd_W_8GNVM_4K
+    WRITE80G_8GNVM
+    RUN_DB_BENCH
+
+    echo "---- 64 thread ----"
+    sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 64/g' $db_path/util/global.h
+    MAKE
+    output_file=$output_path/Thead_64_Rnd_W_8GNVM_4K
+    WRITE80G_8GNVM
+    RUN_DB_BENCH
+
+    flush_ssd=0
+    leveldb_path=$pm_path;
+}
+
 MAKE
 SET_OUTPUT_PATH
 
@@ -377,12 +450,17 @@ echo "chapter 4.1"
 
 echo "chapter 4.2"
 # YCSB_TEST
-YCSB_TEST_LATENCY
+# YCSB_TEST_LATENCY
 
 echo "chapter 4.3"
 # DB_BENCH_TEST_FLUSHSSD
-YCSB_TEST_SSD
+# YCSB_TEST_SSD
 
+echo "chapter 4.4"
+CUCKOO_FILTER_ANALYSIS
+THREAD_COUNT_ANALYSIS
+
+CLEAN_DB
 # sudo cp build/libleveldb.a /usr/local/lib/
 # sudo cp -r include/leveldb /usr/local/include/
 # -exec break __sanitizer::Die
