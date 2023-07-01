@@ -162,7 +162,7 @@ int DelegateClient(ycsbc::DB *db, ycsbc::CoreWorkload *wl, const int num_ops,
     if (time_series && i % 100 == 0) {
       end = get_now_micros();
       int tmp = end - start - sum;
-      printf("No.%d 100 opeartions: use time:%.3f us  IOPS:%.2f iops  average latency:%.3f micros/op\n\n", i / 100, 1.0 * tmp, 1.0 * 100 * 1e6 / tmp, 1.0 * tmp / 100);
+      printf("No.%d 100 opeartions: use time:%.3f us  IOPS:%.2f iops  average latency:%.3f micros/op\n", i / 100, 1.0 * tmp, 1.0 * 100 * 1e6 / tmp, 1.0 * tmp / 100);
       sum += tmp;
     }
   }

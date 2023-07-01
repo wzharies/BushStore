@@ -868,7 +868,7 @@ class Benchmark {
         auto last_elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(last_report_time - start_time).count();
         auto diff_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_report_time).count();
         if (cur_elapsed_time / 1000 != last_elapsed_time / 1000) {
-          double throughput = bytes_this_second * 1.0 / 1000 / 1000 / (diff_time / 1000.0);
+          double throughput = bytes_this_second * 1.0 / 1024 / 1024 / (diff_time / 1000.0);
           std::cout << "Throughput " << cur_elapsed_time / 1000 << " second: " << throughput << " MB per second" << std::endl;
           last_report_time = now;
           bytes_this_second = 0;

@@ -244,6 +244,7 @@ class DBImpl : public DB {
   std::atomic<size_t> compactL0Count_ = 2;
   std::atomic<size_t> curMemtableSize_;
   size_t maxMemtableSize_;
+  std::atomic<size_t> l0_num_ = 0;
 public:
   ReadStats readStats_;
 };

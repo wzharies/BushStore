@@ -848,7 +848,7 @@ int DBImpl::PickCompactionPM(){
   int level = -1;
   
   mutex_l0_.lock();
-  uint32_t l0_num = Table_L0_.size();
+  l0_num_ = Table_L0_.size();
   mutex_l0_.unlock();
 
   /*
@@ -856,7 +856,7 @@ int DBImpl::PickCompactionPM(){
     如果L0数量太多就写入L1，如果usage太大，则设置gc
   */
   
-  if(l0_num >= 10){
+  if(l0_num_ >= 10){
     level = 0;
   }
   if(options_.flush_ssd){
@@ -2040,11 +2040,11 @@ void DBImpl::MergeL1(){
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
   mutex_l0_.lock();
-  uint32_t l0_num = Table_L0_.size();
+  l0_num_ = Table_L0_.size();
   mutex_l0_.unlock();
   double usage = pmAlloc_->getMemoryUsabe();
 
-  if (imm_ != nullptr && l0_num < L0BufferCount && !needGC && !flushSSD && usage < memory_rate) {
+  if (imm_ != nullptr && l0_num_ < L0BufferCount && !needGC && !flushSSD && usage < memory_rate) {
     CompactMemTable();
     conVar_.notify_one();
     //CompactMemTableToPM();
@@ -2869,8 +2869,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // Yield previous error
       s = bg_error_;
       break;
-    } else if (allow_delay && versions_->NumLevelFiles(0) >=
-                                  config::kL0_SlowdownWritesTrigger) {
+    } else if (allow_delay && l0_num_ >=
+                                  maxMergeCount) {
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each
@@ -2879,6 +2879,18 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
       env_->SleepForMicroseconds(1000);
+      allow_delay = false;  // Do not delay a single write more than once
+      mutex_.Lock();
+    } else if (allow_delay && l0_num_ >=
+                                  (maxMergeCount + L0BufferCount) / 2) {
+      // We are getting close to hitting a hard limit on the number of
+      // L0 files.  Rather than delaying a single write by several
+      // seconds when we hit the hard limit, start delaying each
+      // individual write by 1ms to reduce latency variance.  Also,
+      // this delay hands over some CPU to the compaction thread in
+      // case it is sharing the same core as the writer.
+      mutex_.Unlock();
+      env_->SleepForMicroseconds(10000);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
     } else if (!force &&
@@ -2890,7 +2902,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // one is still being compacted, so we wait.
       Log(options_.info_log, "Current memtable full; waiting...\n");
       background_work_finished_signal_.Wait();
-    } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
+    } else if (l0_num_ >= L0BufferCount) {
       // There are too many level-0 files.
       Log(options_.info_log, "Too many L0 files; waiting...\n");
       background_work_finished_signal_.Wait();

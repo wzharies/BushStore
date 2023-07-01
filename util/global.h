@@ -15,14 +15,14 @@ namespace leveldb {
 constexpr int VPAGE_CAPACITY = 512 * 1024;
 constexpr int MAX_FILE_NUM = 2;
 constexpr int MAX_BNODE_NUM = 150;
-constexpr int TASK_COUNT = 1;
+constexpr int TASK_COUNT = 64;
 constexpr int max_size = 64 * 1024;
 constexpr bool use_pm = true;
 constexpr double memory_rate = 0.75;
 
 // compact
 constexpr int initMemtableSize = 1 * 1024 * 1024;
-constexpr int addMemtableSize = 2 * 1024 * 1024;
+constexpr int addMemtableSize = 4 * 1024 * 1024;
 constexpr int minMergeCount = 1;
 constexpr int maxMergeCount = 15;
 constexpr int L0BufferCount = 25;

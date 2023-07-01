@@ -29,7 +29,7 @@ ycsb_input=1KB_ALL
 num_thread=1
 value_size=1024
 num_kvs=$((10*$MB))
-write_buffer_size=$((50*$MB))
+write_buffer_size=$((64*$MB))
 max_file_size=$((128*$MB))
 pm_size=$((180*$GB))
 bucket_nums=$((4*$MB)) # bucket_nums * 4 > nums_kvs
@@ -284,7 +284,7 @@ DB_BENCH_TEST() {
 }
 
 DB_BENCH_THROUGHPUT() {
-    echo "------------db_bench------------"
+    echo "--------db_bench-throughput-------"
     benchmarks="fillrandom,stats"
 
     echo "------1K random write/read-----"
@@ -444,23 +444,23 @@ THREAD_COUNT_ANALYSIS(){
 MAKE
 SET_OUTPUT_PATH
 
-echo "chapter 4.1"
+# echo "chapter 4.1"
 # DB_BENCH_TEST
 # DB_BENCH_THROUGHPUT
 
-echo "chapter 4.2"
-# YCSB_TEST
+# echo "chapter 4.2"
+YCSB_TEST
 # YCSB_TEST_LATENCY
 
-echo "chapter 4.3"
+# echo "chapter 4.3"
 # DB_BENCH_TEST_FLUSHSSD
 # YCSB_TEST_SSD
 
-echo "chapter 4.4"
-CUCKOO_FILTER_ANALYSIS
-THREAD_COUNT_ANALYSIS
+# echo "chapter 4.4"
+# CUCKOO_FILTER_ANALYSIS
+# THREAD_COUNT_ANALYSIS
 
-CLEAN_DB
+# CLEAN_DB
 # sudo cp build/libleveldb.a /usr/local/lib/
 # sudo cp -r include/leveldb /usr/local/include/
 # -exec break __sanitizer::Die
