@@ -538,7 +538,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
 }
 Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
   mutex_.AssertHeld();
-  int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
+  uint64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   uint64_t start_micros = 0;
   int level = 0;
   if (TIME_ANALYSIS){
@@ -609,6 +609,10 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
   stats.micros = imm_micros;
   stats.bytes_written += builder.getWriteByte();
   stats_[level].Add(stats);
+  if(WRITE_TIME_ANALYSIS){
+    writeStats_.writeL0Count++;
+    writeStats_.writeL0Time+=imm_micros;
+  }
   if (DEBUG_PRINT) {
     double usage1 = pmAlloc_->getMemoryUsabe();
     std::cout << "flush at level 0, cost time : " << imm_micros / 1000;
@@ -901,7 +905,7 @@ Status DBImpl::CompactionLevel0(){
   // TODO， 如果L0的数量与L1相差太大。。。
   // finished
   // TODO，每次compaction的时候不需要把L0与L1全部compaction，因为划分成不重叠的子部分进行compaction。
-  int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
+  uint64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   uint64_t start_micros = 0;
   int level = 1;
   if (TIME_ANALYSIS){
@@ -1138,6 +1142,10 @@ Status DBImpl::CompactionLevel0(){
   stats.micros = imm_micros;
   stats.bytes_written += builder.getWriteByte();
   stats_[level].Add(stats);
+  if(WRITE_TIME_ANALYSIS){
+    writeStats_.writeL1Count++;
+    writeStats_.writeL1Time+=imm_micros;
+  }
   if (DEBUG_PRINT) {
     double usage1 = pmAlloc_->getMemoryUsabe();
     std::cout<< "compaction at level 0, cost time : "<< imm_micros / 1000;

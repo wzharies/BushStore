@@ -33,6 +33,7 @@ write_buffer_size=$((64*$MB))
 max_file_size=$((128*$MB))
 pm_size=$((180*$GB))
 bucket_nums=$((4*$MB)) # bucket_nums * 4 > nums_kvs
+max_open_files=$((1000))
 use_pm=1
 flush_ssd=0
 throughput=0
@@ -94,6 +95,13 @@ WRITE80G-64K() {
     num_kvs=$((80*$GB / $value_size))
     bucket_nums=$((8*$MB)) # bucket_nums * 4 > nums_kvs
 }
+
+WRITE40G-4K() {
+    value_size=$((4*$KB))
+    num_kvs=$((40*$GB / $value_size))
+    bucket_nums=$((8*$MB)) # bucket_nums * 4 > nums_kvs
+}
+
 WRITE80G_8GNVM() {
     leveldb_path=$ssd_path;
     value_size=$((4*$KB))
@@ -150,6 +158,7 @@ RUN_DB_BENCH() {
                 --value_size=$value_size \
                 --write_buffer_size=$write_buffer_size \
                 --max_file_size=$max_file_size \
+                --open_files=$max_open_files \
                 --pm_size=$pm_size \
                 --pm_path=$pm_path \
                 --db=$leveldb_path \
@@ -217,7 +226,7 @@ MAKE() {
   cmake -DCMAKE_BUILD_TYPE=Release .. 
 #   cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. 
 
-  make -j32
+  make -j64
   cd ..
   cd $ycsb_path
   #make clean
@@ -376,20 +385,45 @@ YCSB_TEST_SSD(){
 
 CUCKOO_FILTER_ANALYSIS(){
     echo "------cuckoo filter analysis-------"
-    benchmarks="fillseq,readwhilewriting,stats"
+    sed -i 's/READ_TIME_ANALYSIS = false/READ_TIME_ANALYSIS = true/g' $db_path/util/global.h
+
+    benchmarks="fillrandom,readwhilewriting,stats"
+
     echo "---- with cuckoo filter ----"
-    sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' $db_path/util/global.h
+    sed -i 's/CUCKOO_FILTER = false/CUCKOO_FILTER = true/g' $db_path/util/global.h
     MAKE
-    output_file=$output_path/Cuckoo_Filter_No_RW_NVM_4K
-    WRITE80G-4K
+    output_file=$output_path/Cuckoo_Filter_YES_RW_NVM_4K
+    WRITE40G-4K
     RUN_DB_BENCH
 
     echo "---- without cuckoo filter ----"
+    sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' $db_path/util/global.h
+    MAKE
+    output_file=$output_path/Cuckoo_Filter_NO_RW_NVM_4K
+    WRITE40G-4K
+    RUN_DB_BENCH
+
+    sed -i 's/READ_TIME_ANALYSIS = true/READ_TIME_ANALYSIS = false/g' $db_path/util/global.h
     sed -i 's/CUCKOO_FILTER = false/CUCKOO_FILTER = true/g' $db_path/util/global.h
     MAKE
-    output_file=$output_path/Cuckoo_Filter_Yes_RW_NVM_4K
-    WRITE80G-4K
+}
+
+WRITE_TIME_ANALYSIS(){
+    echo "------write time analysis-------"
+    sed -i 's/WRITE_TIME_ANALYSIS = false/WRITE_TIME_ANALYSIS = true/g' $db_path/util/global.h
+
+    benchmarks="fillrandom,stats"
+    MAKE
+    # output_file=$output_path/WRITE_TIME_ANALYSIS_80G_4K_RND
+    # WRITE80G-4K
+    # RUN_DB_BENCH
+
+    output_file=$output_path/WRITE_TIME_ANALYSIS_80G_1K_RND
+    WRITE80G
     RUN_DB_BENCH
+
+    sed -i 's/WRITE_TIME_ANALYSIS = true/WRITE_TIME_ANALYSIS = false/g' $db_path/util/global.h
+    MAKE
 }
 
 THREAD_COUNT_ANALYSIS(){
@@ -444,23 +478,24 @@ THREAD_COUNT_ANALYSIS(){
 MAKE
 SET_OUTPUT_PATH
 
-# echo "chapter 4.1"
-# DB_BENCH_TEST
-# DB_BENCH_THROUGHPUT
+echo "chapter 4.1"
+DB_BENCH_TEST
+DB_BENCH_THROUGHPUT
 
-# echo "chapter 4.2"
+echo "chapter 4.2"
 YCSB_TEST
-# YCSB_TEST_LATENCY
+YCSB_TEST_LATENCY
 
-# echo "chapter 4.3"
-# DB_BENCH_TEST_FLUSHSSD
-# YCSB_TEST_SSD
+echo "chapter 4.3"
+DB_BENCH_TEST_FLUSHSSD
+YCSB_TEST_SSD
 
-# echo "chapter 4.4"
-# CUCKOO_FILTER_ANALYSIS
-# THREAD_COUNT_ANALYSIS
+echo "chapter 4.4"
+CUCKOO_FILTER_ANALYSIS
+THREAD_COUNT_ANALYSIS
+WRITE_TIME_ANALYSIS
 
-# CLEAN_DB
+CLEAN_DB
 # sudo cp build/libleveldb.a /usr/local/lib/
 # sudo cp -r include/leveldb /usr/local/include/
 # -exec break __sanitizer::Die

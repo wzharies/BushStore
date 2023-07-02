@@ -247,6 +247,7 @@ class DBImpl : public DB {
   std::atomic<size_t> l0_num_ = 0;
 public:
   ReadStats readStats_;
+  WriteStats writeStats_;
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

@@ -16,6 +16,7 @@
 #include "leveldb/write_batch.h"
 #include "port/port.h"
 #include "util/crc32c.h"
+#include "util/global.h"
 #include "util/histogram.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -881,6 +882,9 @@ class Benchmark {
       }
     }
     thread->stats.AddBytes(bytes);
+    if(WRITE_TIME_ANALYSIS){
+      std::cout<< ((DBImpl*)db_)->writeStats_.getStats() << std::endl;
+    }
   }
 
   void ReadSequential(ThreadState* thread) {
@@ -946,7 +950,9 @@ class Benchmark {
       thread->stats.FinishedSingleOp();
     }
     thread->stats.AddBytes(bytes);
-    // std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
+    if(READ_TIME_ANALYSIS){
+      std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
+    }
     char msg[100];
     std::snprintf(msg, sizeof(msg), "(%d of %d found), %d wrong", found, num_, wrong);
     thread->stats.AddMessage(msg);
@@ -978,7 +984,9 @@ class Benchmark {
       thread->stats.FinishedSingleOp();
     }
     thread->stats.AddBytes(bytes);
-    // std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
+    if(READ_TIME_ANALYSIS){
+      std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
+    }
     char msg[100];
     std::snprintf(msg, sizeof(msg), "(%d of %d found), %d wrong", found, num_, wrong);
     thread->stats.AddMessage(msg);
@@ -1100,6 +1108,9 @@ class Benchmark {
 
       // Do not count any of the preceding work/delay in stats.
       thread->stats.Start();
+      if(WRITE_TIME_ANALYSIS){
+        std::cout<< ((DBImpl*)db_)->writeStats_.getStats() << std::endl;
+      }
     }
   }
 
