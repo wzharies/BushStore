@@ -6,6 +6,7 @@
 #include <iostream>
 
 #include "leveldb_db.h"
+#include "leveldb/filter_policy.h"
 #include "lib/coding.h"
 #include "core/utils.h"
 
@@ -33,7 +34,8 @@ namespace ycsbc {
 
         std::string pm_path = props.GetProperty("pmpath","/tmp/test-leveldb");
         options->pm_path_ = pm_path;
-        options->flush_ssd = utils::StrToBool(props["flushssd"]);;
+        options->flush_ssd = utils::StrToBool(props["flushssd"]);
+        options->filter_policy = leveldb::NewBloomFilterPolicy(16);
         // printf("set MioDB options!\n");
         // options->nvm_node = 0;
         // options->nvm_next_node = -1;
