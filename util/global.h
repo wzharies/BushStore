@@ -18,10 +18,10 @@ constexpr int MAX_BNODE_NUM = 150;
 constexpr int TASK_COUNT = 64;
 constexpr int max_size = 64 * 1024;
 constexpr bool use_pm = true;
-constexpr double memory_rate = 0.75;
+constexpr double memory_rate = 0.85;
 
 // compact
-constexpr int initMemtableSize = 1 * 1024 * 1024;
+constexpr int initMemtableSize = 2 * 1024 * 1024;
 constexpr int addMemtableSize = 4 * 1024 * 1024;
 constexpr int minMergeCount = 1;
 constexpr int maxMergeCount = 15;
@@ -30,7 +30,7 @@ constexpr int L0BufferCount = 25;
 // compile
 constexpr bool CUCKOO_FILTER = true;
 constexpr bool DEBUG_CHECK = false;
-constexpr bool DEBUG_PRINT = true;
+constexpr bool DEBUG_PRINT = false;
 constexpr bool TIME_ANALYSIS = true; // must be true
 constexpr bool READ_TIME_ANALYSIS = false;
 constexpr bool WRITE_TIME_ANALYSIS = false;

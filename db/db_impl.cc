@@ -166,7 +166,11 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       usage_(0),
       compactionThread_(&DBImpl::MergeL1, this) {
         maxMemtableSize_ = raw_options.write_buffer_size;
-        curMemtableSize_ = initMemtableSize;
+        if(raw_options.dynamic_tree){
+          curMemtableSize_ = initMemtableSize;
+        }else{
+          curMemtableSize_ = maxMemtableSize_;
+        }
         compactionThread_.detach();
       }
 
@@ -863,16 +867,20 @@ int DBImpl::PickCompactionPM(){
   if(l0_num_ >= 10){
     level = 0;
   }
-  if(options_.flush_ssd){
-    if(usage_ > memory_rate){
-      level = 1;
-      flushSSD = true;
-    }
-  }else if(usage_ > memory_rate){
-    level = 0;
-    needGC = true;
-    // printf("need GC!!\n");
+  if(usage_ > memory_rate){
+    level = 1;
+    flushSSD = true;
   }
+  // if(options_.flush_ssd){
+  //   if(usage_ > memory_rate){
+  //     level = 1;
+  //     flushSSD = true;
+  //   }
+  // }else if(usage_ > memory_rate){
+  //   level = 0;
+  //   needGC = true;
+  //   // printf("need GC!!\n");
+  // }
 
   return level;
 }
@@ -914,11 +922,11 @@ Status DBImpl::CompactionLevel0(){
   // checkAndSetGC();
   // 1. 将L0的table排序，这次compaction需要将L0中的table清空掉
   int mergeSize;
-  if(compactL0Count_.load() < Table_L0_.size()){
-    mergeSize = compactL0Count_.load();
-  }else{
+  // if(compactL0Count_.load() < Table_L0_.size()){
+  //   mergeSize = compactL0Count_.load();
+  // }else{
     mergeSize = Table_L0_.size();
-  }
+  // }
   mutex_l0_.lock();
   std::vector<std::shared_ptr<lbtree>> Table_L0_Merge(Table_L0_.begin(), Table_L0_.begin() + mergeSize);
   mutex_l0_.unlock();
@@ -1124,7 +1132,7 @@ Status DBImpl::CompactionLevel0(){
     Log(options_.info_log, "compaction at level %d, used time : %ld, mergeCount : %zu", level,
         imm_micros / 1000, Table_L0_Merge.size());
     lastCompactL1Time_ = imm_micros / 1000;
-    if(lastCompactL0Time_ != 0 && lastCompactL1Time_ != 0){
+    if(lastCompactL0Time_ != 0 && lastCompactL1Time_ != 0 && options_.dynamic_tree){
       mergeCount = lastCompactL1Time_ / lastCompactL0Time_;
       if(mergeCount >= minMergeCount && mergeCount <= maxMergeCount){
         compactL0Count_ = mergeCount;
@@ -1135,6 +1143,11 @@ Status DBImpl::CompactionLevel0(){
         }else{
           curMemtableSize_ += addMemtableSize * (mergeCount / maxMergeCount);
         }
+        if(curMemtableSize_ > maxMemtableSize_){
+          curMemtableSize_ = maxMemtableSize_;
+        }
+      } else if (mergeCount >maxMergeCount && curMemtableSize_ >= maxMemtableSize_) {
+        ratio_L0_ = curMemtableSize_ / maxMemtableSize_;
       }
     }
   }
@@ -2052,12 +2065,14 @@ void DBImpl::BackgroundCompaction() {
   mutex_l0_.unlock();
   double usage = pmAlloc_->getMemoryUsabe();
 
-  if (imm_ != nullptr && l0_num_ < L0BufferCount && !needGC && !flushSSD && usage < memory_rate) {
+  if (imm_ != nullptr && l0_num_ < L0BufferCount * ratio_L0_ && !needGC && !flushSSD && usage <= memory_rate) {
     CompactMemTable();
     conVar_.notify_one();
     //CompactMemTableToPM();
     return;
   }
+  // std::chrono::milliseconds duration(2);  // 定义等待的时间间隔，单位为毫秒
+  // std::this_thread::sleep_for(duration);  // 线程休眠指定的时间
   // Compaction* c;
   // bool is_manual = (manual_compaction_ != nullptr);
   // InternalKey manual_end;
@@ -2878,7 +2893,19 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       s = bg_error_;
       break;
     } else if (allow_delay && l0_num_ >=
-                                  maxMergeCount) {
+                                  maxMergeCount * ratio_L0_) {
+      // We are getting close to hitting a hard limit on the number of
+      // L0 files.  Rather than delaying a single write by several
+      // seconds when we hit the hard limit, start delaying each
+      // individual write by 1ms to reduce latency variance.  Also,
+      // this delay hands over some CPU to the compaction thread in
+      // case it is sharing the same core as the writer.
+      mutex_.Unlock();
+      env_->SleepForMicroseconds(50);
+      allow_delay = false;  // Do not delay a single write more than once
+      mutex_.Lock();
+    } else if (allow_delay && l0_num_ >=
+                                  (maxMergeCount + L0BufferCount) * ratio_L0_ / 2) {
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each
@@ -2887,18 +2914,6 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
       env_->SleepForMicroseconds(1000);
-      allow_delay = false;  // Do not delay a single write more than once
-      mutex_.Lock();
-    } else if (allow_delay && l0_num_ >=
-                                  (maxMergeCount + L0BufferCount) / 2) {
-      // We are getting close to hitting a hard limit on the number of
-      // L0 files.  Rather than delaying a single write by several
-      // seconds when we hit the hard limit, start delaying each
-      // individual write by 1ms to reduce latency variance.  Also,
-      // this delay hands over some CPU to the compaction thread in
-      // case it is sharing the same core as the writer.
-      mutex_.Unlock();
-      env_->SleepForMicroseconds(10000);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
     } else if (!force &&

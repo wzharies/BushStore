@@ -37,6 +37,7 @@ max_open_files=$((1000))
 use_pm=1
 flush_ssd=0
 throughput=0
+dynamic_tree=1
 
 WRITE10G() {
     pm_path=$sata_path
@@ -166,7 +167,8 @@ RUN_DB_BENCH() {
                 --use_pm=$use_pm \
                 --threads=$num_thread \
                 --flush_ssd=$flush_ssd \
-                --throughput=$throughput
+                --throughput=$throughput \
+                --dynamic_tree=$dynamic_tree \
                 "
     cmd="$APP_PREFIX $db_bench/db_bench $parameters >> $output_file"
     echo $cmd >> $output_file
@@ -222,14 +224,14 @@ MAKE() {
     # 如果目录不存在，则创建目录
     mkdir $db_bench
   fi
-  cd $db_bench
-  cmake -DCMAKE_BUILD_TYPE=Release .. 
+#   cd $db_bench
+  cmake --build /home/wzh/leveldb-pm/build --config Release --target all --parallel --
 #   cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. 
+#   make -j64
+#   cd ..
 
-  make -j64
-  cd ..
   cd $ycsb_path
-  #make clean
+  make clean
   make
   cd ..
 }
@@ -333,9 +335,9 @@ DB_BENCH_TEST_FLUSHSSD() {
     WRITE80G_64GNVM
     RUN_DB_BENCH
 
+    CLEAN_DB
     flush_ssd=0
     leveldb_path=$pm_path;
-    CLEAN_DB
 }
 
 YCSB_TEST(){
@@ -475,11 +477,103 @@ THREAD_COUNT_ANALYSIS(){
     leveldb_path=$pm_path;
 }
 
+DYNAMIC_TREE_ANALYSIS(){
+    echo "------dynamic tree analysis-------"
+    benchmarks="fillrandom,stats"
+    throughput=1
+
+    # echo "---- dynamic ----"
+    # output_file=$output_path/tree_dynamic
+    # dynamic_tree=1
+    # write_buffer_size=$((64*$MB))
+    # WRITE80G
+    # RUN_DB_BENCH
+
+    # echo "---- static 16MB memtable----"
+    # output_file=$output_path/tree_static_16MB
+    # dynamic_tree=0
+    # write_buffer_size=$((16*$MB))
+    # WRITE80G
+    # RUN_DB_BENCH
+
+    # echo "---- static 32MB memtable----"
+    # output_file=$output_path/tree_static_32MB
+    # dynamic_tree=0
+    # write_buffer_size=$((32*$MB))
+    # WRITE80G
+    # RUN_DB_BENCH
+
+    # echo "---- static 64MB memtable----"
+    # output_file=$output_path/tree_static_64MB
+    # dynamic_tree=0
+    # write_buffer_size=$((64*$MB))
+    # WRITE80G
+    # RUN_DB_BENCH
+
+    echo "---- static 128MB memtable----"
+    output_file=$output_path/tree_static_128MB
+    dynamic_tree=0
+    write_buffer_size=$((64*$MB))
+    WRITE80G
+    RUN_DB_BENCH
+
+    throughput=1
+    dynamic_tree=1
+    write_buffer_size=$((64*$MB))
+}
+
+DATA_SIZE_ANALYSIS(){
+    echo "------data size analysis-------"
+    benchmarks="fillrandom,stats"
+    throughput=1
+    bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
+    pm_size=$((400*$GB))
+
+    # echo "---- 40GB ----"
+    # output_file=$output_path/data_40G
+    # write_buffer_size=$((64*$MB))
+    # value_size=$((1*$KB))
+    # num_kvs=$((40*$GB / $value_size))
+    # bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
+    # RUN_DB_BENCH
+
+    # echo "---- 80GB ----"
+    # output_file=$output_path/data_80G
+    # write_buffer_size=$((64*$MB))
+    # value_size=$((1*$KB))
+    # num_kvs=$((80*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # echo "---- 120GB ----"
+    # output_file=$output_path/data_120G
+    # write_buffer_size=$((64*$MB))
+    # value_size=$((1*$KB))
+    # num_kvs=$((120*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # echo "---- 160GB ----"
+    # output_file=$output_path/data_160G
+    # write_buffer_size=$((64*$MB))
+    # value_size=$((1*$KB))
+    # num_kvs=$((160*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    echo "---- 200GB ----"
+    output_file=$output_path/data_200G
+    write_buffer_size=$((64*$MB))
+    value_size=$((1*$KB))
+    num_kvs=$((200*$GB / $value_size))
+    RUN_DB_BENCH
+
+    bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
+    pm_size=$((400*$GB))
+}
+
 MAKE
 SET_OUTPUT_PATH
 
-echo "chapter 4.1"
-DB_BENCH_TEST
+# echo "chapter 4.1"
+# DB_BENCH_TEST
 DB_BENCH_THROUGHPUT
 
 echo "chapter 4.2"
@@ -489,11 +583,13 @@ YCSB_TEST_LATENCY
 echo "chapter 4.3"
 DB_BENCH_TEST_FLUSHSSD
 YCSB_TEST_SSD
-
-echo "chapter 4.4"
-CUCKOO_FILTER_ANALYSIS
 THREAD_COUNT_ANALYSIS
-WRITE_TIME_ANALYSIS
+
+# echo "chapter 4.4"
+# CUCKOO_FILTER_ANALYSIS
+# WRITE_TIME_ANALYSIS
+# DYNAMIC_TREE_ANALYSIS
+# DATA_SIZE_ANALYSIS
 
 CLEAN_DB
 # sudo cp build/libleveldb.a /usr/local/lib/

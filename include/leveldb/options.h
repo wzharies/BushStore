@@ -154,6 +154,7 @@ struct LEVELDB_EXPORT Options {
   bool use_pm_ = true; // use PM or use DRAM as PM
   bool flush_ssd = false;
   bool has_pm = true; // if it's false. then it's leveldb
+  bool dynamic_tree = true;
 };
 
 // inline void* getRelativeAddr(void* addr){

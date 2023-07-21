@@ -131,6 +131,7 @@ static uint64_t EXTENT_SIZE = 512 * 1024 * 1024;
 static bool USE_PM = true;
 static bool FLUSH_SSD = false;
 static bool Throughput = false;
+static bool DYNAMIC_TREE = true;
 static uint64_t BUCKET_NUMS = 8 * 1024 * 1024;
 
 namespace leveldb {
@@ -810,6 +811,7 @@ class Benchmark {
     options.pm_size_ = PM_SIZE;
     options.extent_size_ = EXTENT_SIZE;
     options.flush_ssd = FLUSH_SSD;
+    options.dynamic_tree = DYNAMIC_TREE;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       std::fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1219,6 +1221,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--throughput=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       Throughput = n;
+    } else if (sscanf(argv[i], "--dynamic_tree=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      DYNAMIC_TREE = n;
     } else if (strncmp(argv[i], "--db=", 5) == 0) {
       FLAGS_db = argv[i] + 5;
     } else {

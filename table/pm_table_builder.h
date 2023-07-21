@@ -51,7 +51,15 @@ public:
       flush_vpage();
     }
     uint32_t pointer = (reinterpret_cast<uint64_t>(getRelativeAddr(page_pm_)) >> 12);
-    value_offset_ = page_pm_->setkv(value_nums_, value_offset_, key, value);
+    lastWrite += (key.size() + value.size());
+    bool flush;
+    if(lastWrite > 32 * 1024){ //leveldb use 32K as flush size
+      flush = true;
+      lastWrite = 0;
+    }else{
+      flush = false;
+    }
+    value_offset_ = page_pm_->setkv(value_nums_, value_offset_, key, value, true);
     assert(value_nums_ >= 4);
     return std::make_tuple(pointer, value_nums_++);
   }
@@ -60,6 +68,7 @@ private:
   vPage* page_pm_ = nullptr;
   int value_offset_ = VPAGE_CAPACITY;
   int value_nums_ = 4;
+  int lastWrite = 0;
 };
 
 class vPageWrite {
@@ -107,7 +116,7 @@ public:
       page_pm_ = (char*)pm_alloc_->mallocPage(value_t);
     }
     uint32_t pointer = (reinterpret_cast<uint64_t>(getRelativeAddr(page_pm_)) >> 12);
-    value_offset_ = page_buffer_->setkv(value_nums_, value_offset_, key, value);
+    value_offset_ = page_buffer_->setkv(value_nums_, value_offset_, key, value, false);
     assert(value_nums_ >= 4);
     return std::make_tuple(pointer, value_nums_++);
   }

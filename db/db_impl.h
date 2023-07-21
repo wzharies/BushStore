@@ -245,6 +245,7 @@ class DBImpl : public DB {
   std::atomic<size_t> curMemtableSize_;
   size_t maxMemtableSize_;
   std::atomic<size_t> l0_num_ = 0;
+  int ratio_L0_ = 1;
 public:
   ReadStats readStats_;
   WriteStats writeStats_;

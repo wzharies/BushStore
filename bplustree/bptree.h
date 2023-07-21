@@ -21,6 +21,7 @@
 
 /* ---------------------------------------------------------------------- */
 
+#include <libpmem.h>
 #include "tree.h"
 #include "table/pm_mem_alloc.h"
 #include "util/coding.h"
@@ -334,14 +335,20 @@ struct vPage{
         }
         return false;
     }
-    uint32_t setkv(size_t index, uint32_t off, const leveldb::Slice& key, const leveldb::Slice& value){
+    uint32_t setkv(size_t index, uint32_t off, const leveldb::Slice& key, const leveldb::Slice& value, bool flush){
         // assert(VPAGE_START_INDEX <= index && index < capacity());
         assert(key.size() == 16);
         assert(off > VPAGE_KEY_SIZE + 4 + value.size());
         off -= (VPAGE_KEY_SIZE + 4 + value.size());
-        memcpy((char*)this + off, key.data(), key.size());
+        pmem_memcpy_nodrain((char*)this + off, key.data(), key.size());
+        // memcpy((char*)this + off, key.data(), key.size());
         leveldb::EncodeFixed32((char*)this + off + VPAGE_KEY_SIZE, value.size());
-        memcpy((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+        if(!flush){
+            pmem_memcpy_nodrain((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+        }else{
+            pmem_memcpy_persist((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+        }
+        // memcpy((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
         offset(index) = off;
         setBitMap(index);
         return off;
