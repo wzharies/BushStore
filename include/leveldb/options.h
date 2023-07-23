@@ -149,7 +149,7 @@ struct LEVELDB_EXPORT Options {
   std::string pm_path_ = "/mnt/pmem0.1/pm_test/";
   // size_t key_size_ = 8;
   // size_t value_size_ = 1000;
-  uint64_t pm_size_ = 200ULL * 1024 * 1024 * 1024;
+  uint64_t pm_size_ = 180ULL * 1024 * 1024 * 1024;
   uint64_t extent_size_ = 512 * 1024 * 1024;
   bool use_pm_ = true; // use PM or use DRAM as PM
   bool flush_ssd = false;

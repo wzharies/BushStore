@@ -1139,7 +1139,7 @@ Status DBImpl::CompactionLevel0(){
       }if(mergeCount > maxMergeCount && curMemtableSize_ < maxMemtableSize_){
         compactL0Count_ = maxMergeCount;
         if(options_.flush_ssd){
-          curMemtableSize_ += addMemtableSize / 8;
+          curMemtableSize_ += addMemtableSize / 32;
         }else{
           curMemtableSize_ += addMemtableSize * (mergeCount / maxMergeCount);
         }
@@ -1166,6 +1166,7 @@ Status DBImpl::CompactionLevel0(){
     std::cout<< " mergeCount : "<<Table_L0_Merge.size();
     std::cout<< " nextMergeCount : "<<mergeCount;
     std::cout<< " curMemtableSize : "<<curMemtableSize_ / 1024 / 1024;
+    std::cout<< " ratioCount : " << ratio_L0_;
     std::cout<< "MB, min key : " << tree->tree_meta->min_key << " max key : "<< tree->tree_meta->max_key<< std::endl;
   }
   // // 2. release tree

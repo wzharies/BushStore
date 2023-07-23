@@ -15,7 +15,7 @@ sata_path=/tmp/pm_test
 ssd_path=/media/nvme1/pm_test
 pm_path=/mnt/pmem0.1/pm_test
 # leveldb_path=/tmp/leveldb-wzh
-leveldb_path=$pm_path
+leveldb_path=$ssd_path
 output_path=$db_path/output
 output_file=$output_path/result.out
 
@@ -105,15 +105,15 @@ WRITE40G-4K() {
 
 WRITE80G_8GNVM() {
     leveldb_path=$ssd_path;
-    value_size=$((4*$KB))
+    value_size=$((1*$KB))
     num_kvs=$((80*$GB / $value_size))
     pm_size=$((8*$GB))
-    bucket_nums=$((8*$MB)) # bucket_nums * 4 > nums_kvs
+    bucket_nums=$((16*$MB)) # bucket_nums * 4 > nums_kvs
     flush_ssd=1
 }
 WRITE80G_16GNVM() {
     leveldb_path=$ssd_path;
-    value_size=$((4*$KB))
+    value_size=$((1*$KB))
     num_kvs=$((80*$GB / $value_size))
     pm_size=$((16*$GB))
     bucket_nums=$((8*$MB)) # bucket_nums * 4 > nums_kvs
@@ -121,7 +121,7 @@ WRITE80G_16GNVM() {
 }
 WRITE80G_32GNVM() {
     leveldb_path=$ssd_path;
-    value_size=$((4*$KB))
+    value_size=$((1*$KB))
     num_kvs=$((80*$GB / $value_size))
     pm_size=$((32*$GB))
     bucket_nums=$((8*$MB)) # bucket_nums * 4 > nums_kvs
@@ -129,7 +129,7 @@ WRITE80G_32GNVM() {
 }
 WRITE80G_64GNVM() {
     leveldb_path=$ssd_path;
-    value_size=$((4*$KB))
+    value_size=$((1*$KB))
     num_kvs=$((80*$GB / $value_size))
     pm_size=$((64*$GB))
     bucket_nums=$((8*$MB)) # bucket_nums * 4 > nums_kvs
@@ -137,7 +137,7 @@ WRITE80G_64GNVM() {
 }
 
 WRITE100G() {
-    leveldb_path=$pm_path;
+    # leveldb_path=$pm_path;
     value_size=1000
     num_thread=1
     num_kvs=$((100*$MB))
@@ -199,8 +199,10 @@ CLEAN_DB() {
         echo "DB path empty."
         exit
   fi
-  rm -rf ${leveldb_path:?}/*
-  rm -rf ${pm_path:?}/*
+  find ${pm_path:?}  -type f ! -name 'allocator.edb' -delete
+  find ${leveldb_path:?}  -type f ! -name 'allocator.edb' -delete
+#   rm -rf ${leveldb_path:?}/*
+#   rm -rf ${pm_path:?}/*
 #   mkdir -p $pm_path
 }
 
@@ -314,30 +316,55 @@ DB_BENCH_THROUGHPUT() {
 
 DB_BENCH_TEST_FLUSHSSD() {
     echo "----------db_bench_flushssd----------"
+    APP_PREFIX=""
     benchmarks="fillrandom,readrandom,stats"
-    echo "---8GNVM--4KB random write/read---"
+    echo "---8GNVM--1KB random write/read---"
     output_file=$output_path/NVM8G_Rnd_4K
     WRITE80G_8GNVM
     RUN_DB_BENCH
 
-    echo "---16GNVM--4KB random write/read---"
+    echo "---16GNVM--1KB random write/read---"
     output_file=$output_path/NVM16G_Rnd_4K
     WRITE80G_16GNVM
     RUN_DB_BENCH
 
-    echo "---32GNVM--4KB random write/read---"
+    echo "---32GNVM--1KB random write/read---"
     output_file=$output_path/NVM32G_Rnd_4K
     WRITE80G_32GNVM
     RUN_DB_BENCH
 
-    echo "---64GNVM--4KB random write/read---"
+    echo "---64GNVM--1KB random write/read---"
     output_file=$output_path/NVM64G_Rnd_4K
     WRITE80G_64GNVM
     RUN_DB_BENCH
 
+    
+    benchmarks="fillseq,readseq,stats"
+    echo "---8GNVM--1KB seq write/read---"
+    output_file=$output_path/NVM8G_Seq_4K
+    WRITE80G_8GNVM
+    RUN_DB_BENCH
+
+    echo "---16GNVM--1KB seq write/read---"
+    output_file=$output_path/NVM16G_Seq_4K
+    WRITE80G_16GNVM
+    RUN_DB_BENCH
+
+    echo "---32GNVM--1KB seq write/read---"
+    output_file=$output_path/NVM32G_Seq_4K
+    WRITE80G_32GNVM
+    RUN_DB_BENCH
+
+    echo "---64GNVM--1KB seq write/read---"
+    output_file=$output_path/NVM64G_Seq_4K
+    WRITE80G_64GNVM
+    RUN_DB_BENCH
+
     CLEAN_DB
+    APP_PREFIX="numactl --cpunodebind=0 --membind=0"
+    pm_size=$((180*$GB))
     flush_ssd=0
-    leveldb_path=$pm_path;
+    # leveldb_path=$pm_path;
 }
 
 YCSB_TEST(){
@@ -371,6 +398,7 @@ YCSB_TEST_LATENCY(){
 }
 
 YCSB_TEST_SSD(){
+    APP_PREFIX=""
     cd $ycsb_path
     echo "------------YCSB------------"
     echo "-----1KB YCSB SSD-----"
@@ -383,6 +411,7 @@ YCSB_TEST_SSD(){
     ycsb_input=4KB_ALL_SSD
     RUN_YCSB
     cd ..
+    APP_PREFIX="numactl --cpunodebind=0 --membind=0"
 }
 
 CUCKOO_FILTER_ANALYSIS(){
@@ -435,46 +464,47 @@ THREAD_COUNT_ANALYSIS(){
     sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 1/g' $db_path/util/global.h
     MAKE
     output_file=$output_path/Thead_1_Rnd_W_8GNVM_4K
-    WRITE80G_8GNVM
+    WRITE80G_16GNVM
     RUN_DB_BENCH
 
     echo "---- 4 thread ----"
     sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 4/g' $db_path/util/global.h
     MAKE
     output_file=$output_path/Thead_4_Rnd_W_8GNVM_4K
-    WRITE80G_8GNVM
+    WRITE80G_16GNVM
     RUN_DB_BENCH
 
     echo "---- 8 thread ----"
     sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 8/g' $db_path/util/global.h
     MAKE
     output_file=$output_path/Thead_8_Rnd_W_8GNVM_4K
-    WRITE80G_8GNVM
+    WRITE80G_16GNVM
     RUN_DB_BENCH
 
     echo "---- 16 thread ----"
     sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 16/g' $db_path/util/global.h
     MAKE
     output_file=$output_path/Thead_16_Rnd_W_8GNVM_4K
-    WRITE80G_8GNVM
+    WRITE80G_16GNVM
     RUN_DB_BENCH
 
     echo "---- 32 thread ----"
     sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 32/g' $db_path/util/global.h
     MAKE
     output_file=$output_path/Thead_32_Rnd_W_8GNVM_4K
-    WRITE80G_8GNVM
+    WRITE80G_16GNVM
     RUN_DB_BENCH
 
     echo "---- 64 thread ----"
     sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 64/g' $db_path/util/global.h
     MAKE
     output_file=$output_path/Thead_64_Rnd_W_8GNVM_4K
-    WRITE80G_8GNVM
+    WRITE80G_16GNVM
     RUN_DB_BENCH
 
+    pm_size=$((180*$GB))
     flush_ssd=0
-    leveldb_path=$pm_path;
+    # leveldb_path=$pm_path;
 }
 
 DYNAMIC_TREE_ANALYSIS(){
@@ -482,42 +512,49 @@ DYNAMIC_TREE_ANALYSIS(){
     benchmarks="fillrandom,stats"
     throughput=1
 
-    # echo "---- dynamic ----"
-    # output_file=$output_path/tree_dynamic
-    # dynamic_tree=1
-    # write_buffer_size=$((64*$MB))
-    # WRITE80G
-    # RUN_DB_BENCH
+    echo "---- dynamic ----"
+    output_file=$output_path/tree_dynamic
+    dynamic_tree=1
+    write_buffer_size=$((64*$MB))
+    WRITE80G
+    RUN_DB_BENCH
 
-    # echo "---- static 16MB memtable----"
-    # output_file=$output_path/tree_static_16MB
-    # dynamic_tree=0
-    # write_buffer_size=$((16*$MB))
-    # WRITE80G
-    # RUN_DB_BENCH
+    echo "---- static 16MB memtable----"
+    output_file=$output_path/tree_static_16MB
+    dynamic_tree=0
+    write_buffer_size=$((16*$MB))
+    WRITE80G
+    RUN_DB_BENCH
 
-    # echo "---- static 32MB memtable----"
-    # output_file=$output_path/tree_static_32MB
-    # dynamic_tree=0
-    # write_buffer_size=$((32*$MB))
-    # WRITE80G
-    # RUN_DB_BENCH
+    echo "---- static 32MB memtable----"
+    output_file=$output_path/tree_static_32MB
+    dynamic_tree=0
+    write_buffer_size=$((32*$MB))
+    WRITE80G
+    RUN_DB_BENCH
 
-    # echo "---- static 64MB memtable----"
-    # output_file=$output_path/tree_static_64MB
-    # dynamic_tree=0
-    # write_buffer_size=$((64*$MB))
-    # WRITE80G
-    # RUN_DB_BENCH
-
-    echo "---- static 128MB memtable----"
-    output_file=$output_path/tree_static_128MB
+    echo "---- static 64MB memtable----"
+    output_file=$output_path/tree_static_64MB
     dynamic_tree=0
     write_buffer_size=$((64*$MB))
     WRITE80G
     RUN_DB_BENCH
 
-    throughput=1
+    echo "---- static 128MB memtable----"
+    output_file=$output_path/tree_static_128MB
+    dynamic_tree=0
+    write_buffer_size=$((128*$MB))
+    WRITE80G
+    RUN_DB_BENCH
+
+    echo "---- static 256MB memtable----"
+    output_file=$output_path/tree_static_256MB
+    dynamic_tree=0
+    write_buffer_size=$((256*$MB))
+    WRITE80G
+    RUN_DB_BENCH
+
+    throughput=0
     dynamic_tree=1
     write_buffer_size=$((64*$MB))
 }
@@ -525,48 +562,51 @@ DYNAMIC_TREE_ANALYSIS(){
 DATA_SIZE_ANALYSIS(){
     echo "------data size analysis-------"
     benchmarks="fillrandom,stats"
-    throughput=1
     bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
-    pm_size=$((400*$GB))
 
-    # echo "---- 40GB ----"
-    # output_file=$output_path/data_40G
-    # write_buffer_size=$((64*$MB))
-    # value_size=$((1*$KB))
-    # num_kvs=$((40*$GB / $value_size))
-    # bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
-    # RUN_DB_BENCH
+    echo "---- 40GB 8GNVM----"
+    output_file=$output_path/data_40G
+    pm_size=$((8*$GB))
+    write_buffer_size=$((64*$MB))
+    value_size=$((1*$KB))
+    num_kvs=$((40*$GB / $value_size))
+    RUN_DB_BENCH
 
-    # echo "---- 80GB ----"
-    # output_file=$output_path/data_80G
-    # write_buffer_size=$((64*$MB))
-    # value_size=$((1*$KB))
-    # num_kvs=$((80*$GB / $value_size))
-    # RUN_DB_BENCH
+    echo "---- 80GB 16GNVM----"
+    output_file=$output_path/data_80G
+    pm_size=$((16*$GB))
+    write_buffer_size=$((64*$MB))
+    value_size=$((1*$KB))
+    num_kvs=$((80*$GB / $value_size))
+    RUN_DB_BENCH
 
-    # echo "---- 120GB ----"
-    # output_file=$output_path/data_120G
-    # write_buffer_size=$((64*$MB))
-    # value_size=$((1*$KB))
-    # num_kvs=$((120*$GB / $value_size))
-    # RUN_DB_BENCH
+    echo "---- 120GB 24GNVM----"
+    output_file=$output_path/data_120G
+    pm_size=$((24*$GB))
+    write_buffer_size=$((64*$MB))
+    value_size=$((1*$KB))
+    num_kvs=$((120*$GB / $value_size))
+    RUN_DB_BENCH
 
-    # echo "---- 160GB ----"
-    # output_file=$output_path/data_160G
-    # write_buffer_size=$((64*$MB))
-    # value_size=$((1*$KB))
-    # num_kvs=$((160*$GB / $value_size))
-    # RUN_DB_BENCH
+    echo "---- 160GB 32GNVM----"
+    output_file=$output_path/data_160G
+    pm_size=$((32*$GB))
+    write_buffer_size=$((64*$MB))
+    value_size=$((1*$KB))
+    num_kvs=$((160*$GB / $value_size))
+    RUN_DB_BENCH
 
-    echo "---- 200GB ----"
+    echo "---- 200GB 40GNVM----"
     output_file=$output_path/data_200G
+    pm_size=$((40*$GB))
     write_buffer_size=$((64*$MB))
     value_size=$((1*$KB))
     num_kvs=$((200*$GB / $value_size))
     RUN_DB_BENCH
 
     bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
-    pm_size=$((400*$GB))
+    pm_size=$((190*$GB))
+    flush_ssd=0
 }
 
 MAKE
@@ -576,20 +616,20 @@ SET_OUTPUT_PATH
 # DB_BENCH_TEST
 DB_BENCH_THROUGHPUT
 
-echo "chapter 4.2"
-YCSB_TEST
-YCSB_TEST_LATENCY
+# echo "chapter 4.2"
+# YCSB_TEST
+# YCSB_TEST_LATENCY
 
-echo "chapter 4.3"
-DB_BENCH_TEST_FLUSHSSD
-YCSB_TEST_SSD
-THREAD_COUNT_ANALYSIS
+# echo "chapter 4.3"
+# DB_BENCH_TEST_FLUSHSSD
+# YCSB_TEST_SSD
+# THREAD_COUNT_ANALYSIS
+# DATA_SIZE_ANALYSIS
 
-# echo "chapter 4.4"
+echo "chapter 4.4"
 # CUCKOO_FILTER_ANALYSIS
 # WRITE_TIME_ANALYSIS
 # DYNAMIC_TREE_ANALYSIS
-# DATA_SIZE_ANALYSIS
 
 CLEAN_DB
 # sudo cp build/libleveldb.a /usr/local/lib/

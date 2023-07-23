@@ -340,15 +340,17 @@ struct vPage{
         assert(key.size() == 16);
         assert(off > VPAGE_KEY_SIZE + 4 + value.size());
         off -= (VPAGE_KEY_SIZE + 4 + value.size());
-        pmem_memcpy_nodrain((char*)this + off, key.data(), key.size());
-        // memcpy((char*)this + off, key.data(), key.size());
+        // pmem_memcpy_nodrain((char*)this + off, key.data(), key.size());
+        memcpy((char*)this + off, key.data(), key.size());
         leveldb::EncodeFixed32((char*)this + off + VPAGE_KEY_SIZE, value.size());
         if(!flush){
-            pmem_memcpy_nodrain((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+            // pmem_memcpy_nodrain((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+            memcpy((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
         }else{
-            pmem_memcpy_persist((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+            // pmem_memcpy_persist((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+            memcpy((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+            pmem_drain();
         }
-        // memcpy((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
         offset(index) = off;
         setBitMap(index);
         return off;

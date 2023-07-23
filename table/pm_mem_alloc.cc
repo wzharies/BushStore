@@ -5,6 +5,7 @@
 #include "pm_mem_alloc.h"
 
 #include <cassert>
+#include <cstdlib>
 
 #include "leveldb/table_builder.h"
 #include "util/global.h"
@@ -181,8 +182,8 @@ PMExtent* PMMemAllocator::NewExtent(PageType type) {
   PMExtent* pe;
   int cur_extent_id = pages.size();
   if(cur_extent_id >= options_.pm_size_ / options_.extent_size_){
-    printf("out of pm memory size!!!, please reserve enough space for GC\n");
-    assert(false);
+    printf("out of pm memory size, program will exit, please reserve enough space for GC or reduce memory_rate.\n");
+    exit(-1);
   }
   if (type == key_t) {
     pe = new PMExtent(kPage_count_, kPage_size_, (char*)getAbsoluteAddr(((uint64_t)cur_extent_id) * options_.extent_size_));
