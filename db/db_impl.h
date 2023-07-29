@@ -193,6 +193,7 @@ class DBImpl : public DB {
   port::Mutex mutex_;
   std::atomic<bool> shutting_down_;
   port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
+  port::CondVar space_signal_ GUARDED_BY(mutex_);
   MemTable* mem_;
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
@@ -237,7 +238,7 @@ class DBImpl : public DB {
   std::condition_variable conVar_;
   std::mutex mergeMutex_;
   key_type new_start_key_ = 0;
-  double usage_;
+  std::atomic<int> usage_;
   std::thread compactionThread_;
   std::atomic<int> lastCompactL0Time_ = 0;
   std::atomic<int> lastCompactL1Time_ = 0;

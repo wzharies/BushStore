@@ -12,7 +12,7 @@
 #include <string>
 
 namespace leveldb {
-constexpr int VPAGE_CAPACITY = 512 * 1024;
+constexpr int VPAGE_CAPACITY = 256 * 1024;
 constexpr int MAX_FILE_NUM = 2;
 constexpr int MAX_BNODE_NUM = 150;
 constexpr int TASK_COUNT = 64;
@@ -21,11 +21,12 @@ constexpr bool use_pm = true;
 constexpr double memory_rate = 0.85;
 
 // compact
-constexpr int initMemtableSize = 2 * 1024 * 1024;
+constexpr int initMemtableSize = 1 * 1024 * 1024;
 constexpr int addMemtableSize = 4 * 1024 * 1024;
 constexpr int minMergeCount = 1;
 constexpr int maxMergeCount = 15;
 constexpr int L0BufferCount = 25;
+constexpr int L0BufferCountMax = 35;
 
 // compile
 constexpr bool CUCKOO_FILTER = true;
@@ -34,6 +35,8 @@ constexpr bool DEBUG_PRINT = false;
 constexpr bool TIME_ANALYSIS = true; // must be true
 constexpr bool READ_TIME_ANALYSIS = false;
 constexpr bool WRITE_TIME_ANALYSIS = false;
+
+constexpr bool SKIPLIST_NVM = false;
 
 struct ReadStats {
   int64_t readCount = 0;

@@ -27,6 +27,7 @@
 #include "util/coding.h"
 #include "leveldb/slice.h"
 #include "leveldb/iterator.h"
+#include "bplustree/persist.h"
 
 namespace leveldb {
 /* ---------------------------------------------------------------------- */
@@ -307,6 +308,11 @@ struct vPage{
         size_t metaIndex = index % ONE_META_ENTRY_NUM;
         return meta[entryIndex].offset[metaIndex];
     }
+    char* offset_addr(size_t index){
+        size_t entryIndex = index / ONE_META_ENTRY_NUM;
+        size_t metaIndex = index % ONE_META_ENTRY_NUM;
+        return (char*)(&meta[entryIndex].offset[metaIndex]);
+    }
     void setNext(void* next){
         *(uint64_t*)(meta[0].offset + 2) = (uint64_t)next;
     }
@@ -343,16 +349,42 @@ struct vPage{
         // pmem_memcpy_nodrain((char*)this + off, key.data(), key.size());
         memcpy((char*)this + off, key.data(), key.size());
         leveldb::EncodeFixed32((char*)this + off + VPAGE_KEY_SIZE, value.size());
-        if(!flush){
+        // if(flush){
+            // pmem_memcpy_persist((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+        // }else{
+            // pmem_memcpy_nodrain((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+        // }
+        // clflush((char*)(this + off), key.size() + value.size() + 8);
+        // if(!flush){
             // pmem_memcpy_nodrain((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
             memcpy((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
-        }else{
-            // pmem_memcpy_persist((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
-            memcpy((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
-            pmem_drain();
-        }
+        //     // pmem_drain();
+        // }else{
+        //     pmem_memcpy_persist((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+        //     // memcpy((char*)this + off + VPAGE_KEY_SIZE + 4, value.data(), value.size());
+        //     // pmem_drain();
+        // }
         offset(index) = off;
+        // flush = true;
+        // if(flush){
+
+        //     // clflush(offset_addr(index), 4);
+            // asm volatile("mfence":::"memory");
+            // asm volatile("clflush %0" : "+m" (*(volatile char *)offset_addr(index)));
+            // asm volatile("mfence":::"memory");
+        // }
         setBitMap(index);
+        // if(flush){
+            // asm volatile("mfence":::"memory");
+            // asm volatile("clflush %0" : "+m" (*(volatile char *)metadata(index)));
+            // asm volatile("mfence":::"memory");
+        //     // clflush(metadata(index), 8);
+        // }
+        // pmem_drain();
+        
+        // if(flush){
+        //     pmem_drain();
+        // }
         return off;
     }
     void clrBitMap(int index){
@@ -371,6 +403,10 @@ struct vPage{
         size_t entryIndex = index / ONE_META_ENTRY_NUM;
         size_t metaIndex = index % ONE_META_ENTRY_NUM;
         meta[entryIndex].bitmap |= (1ULL << metaIndex);
+    }
+    char* metadata(int index){
+        size_t entryIndex = index / ONE_META_ENTRY_NUM;
+        return (char*)(&meta[entryIndex]);
     }
 
     bool getBitMap(int index){

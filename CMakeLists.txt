@@ -229,6 +229,7 @@ target_sources(leveldb
     "bplustree/nvm-common.h"
     "bplustree/nvm-common.cc"
     "bplustree/performance.h"
+    "bplustree/persist.h"
     "bplustree/tree_api.hpp"
     "bplustree/tree.cc"
     "bplustree/tree.h"

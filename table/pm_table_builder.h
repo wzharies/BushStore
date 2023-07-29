@@ -1,5 +1,6 @@
 #ifndef STORAGE_LEVELDB_TABLE_PM_TABLE_BUILDER_H_
 #define STORAGE_LEVELDB_TABLE_PM_TABLE_BUILDER_H_
+#include <libpmem.h>
 #include<memory>
 #include<string>
 #include<vector>
@@ -7,6 +8,7 @@
 #include "table_meta.h"
 #include "pm_mem_alloc.h"
 #include "bplustree/bptree.h"
+#include "bplustree/persist.h"
 #include "util/global.h"
 namespace leveldb{
 class vPageWriteDirect {
@@ -35,8 +37,12 @@ public:
   void flush_vpage(){
     assert(page_pm_->nums() + 4 == value_nums_);
     page_pm_->capacity() = value_nums_;
+    // clflush((char*)page_pm_, VPAGE_CAPACITY);
     vPage* next_page_pm_ = (vPage*)pm_alloc_->mallocPage(value_t);
+    // pmem_memset_nodrain(next_page_pm_, 0, VPAGE_CAPACITY);
     page_pm_->setNext(next_page_pm_);
+    pmem_persist(page_pm_,VPAGE_CAPACITY);
+    //TODO add a finished flag
     assert(page_pm_->next() == next_page_pm_);
     page_pm_ = next_page_pm_;
     page_pm_->nums() = 0;
@@ -60,6 +66,7 @@ public:
       flush = false;
     }
     value_offset_ = page_pm_->setkv(value_nums_, value_offset_, key, value, true);
+    // pm_alloc_->Sync();
     assert(value_nums_ >= 4);
     return std::make_tuple(pointer, value_nums_++);
   }
@@ -100,7 +107,7 @@ public:
     page_buffer_->capacity() = value_nums_;
     writeByte_ += VPAGE_CAPACITY;
     if(pm_alloc_->options_.use_pm_){
-        pmem_memcpy_persist(page_pm_, page_buffer_, VPAGE_CAPACITY);
+        pmem_memcpy_nodrain(page_pm_, page_buffer_, VPAGE_CAPACITY);
     }else{
         memcpy(page_pm_, page_buffer_, VPAGE_CAPACITY);
     }

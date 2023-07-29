@@ -149,6 +149,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       db_lock_(nullptr),
       shutting_down_(false),
       background_work_finished_signal_(&mutex_),
+      space_signal_(&mutex_),
       pmAlloc_(new PMMemAllocator(options_)),
       mem_(nullptr),
       imm_(nullptr),
@@ -180,7 +181,7 @@ DBImpl::~DBImpl() {
   shutting_down_.store(true);
   conVar_.notify_all();
   while (background_compaction_scheduled_) {
-    background_work_finished_signal_.Wait();
+    background_work_finished_signal_.WaitFor(1);
   }
   mutex_.Unlock();
 
@@ -812,6 +813,20 @@ void DBImpl::BGWork(void* db) {
 }
 
 void DBImpl::BackgroundCall() {
+  std::chrono::milliseconds duration(1);  // 定义等待的时间间隔，单位为毫秒
+  std::this_thread::sleep_for(duration);  // 线程休眠指定的时间
+  // if (shutting_down_.load(std::memory_order_acquire)) {
+  //   // No more background work when shutting down.
+  //   background_compaction_scheduled_ = false;
+  //   background_work_finished_signal_.SignalAll();
+  //   // Previous compaction may have produced too many files in a level,
+  //   // so reschedule another compaction if needed.
+  //   return;
+  // }
+  usage_ = pmAlloc_->getMemoryUsabe() * 100;
+  if(usage_ < 95){
+    space_signal_.SignalAll();
+  }
   MutexLock l(&mutex_);
   assert(background_compaction_scheduled_);
   if (shutting_down_.load(std::memory_order_acquire)) {
@@ -827,7 +842,6 @@ void DBImpl::BackgroundCall() {
   // Previous compaction may have produced too many files in a level,
   // so reschedule another compaction if needed.
   MaybeScheduleCompaction();
-  background_work_finished_signal_.SignalAll();
 }
 
 void DBImpl::checkAndSetGC(){
@@ -852,7 +866,7 @@ bool DBImpl::isNeedGC(){
 }
 
 int DBImpl::PickCompactionPM(){
-  usage_ = pmAlloc_->getMemoryUsabe();
+  usage_ = pmAlloc_->getMemoryUsabe() * 100;
   int level = -1;
   
   mutex_l0_.lock();
@@ -867,7 +881,7 @@ int DBImpl::PickCompactionPM(){
   if(l0_num_ >= 10){
     level = 0;
   }
-  if(usage_ > memory_rate){
+  if(usage_ > memory_rate * 100){
     level = 1;
     flushSSD = true;
   }
@@ -1139,7 +1153,7 @@ Status DBImpl::CompactionLevel0(){
       }if(mergeCount > maxMergeCount && curMemtableSize_ < maxMemtableSize_){
         compactL0Count_ = maxMergeCount;
         if(options_.flush_ssd){
-          curMemtableSize_ += addMemtableSize / 32;
+          curMemtableSize_ += addMemtableSize / 16;
         }else{
           curMemtableSize_ += addMemtableSize * (mergeCount / maxMergeCount);
         }
@@ -1767,10 +1781,13 @@ Status DBImpl::CompactionLevel1Concurrency(){
     }
   }
   stats_[2].Add(stats);
+  usage_ = pmAlloc_->getMemoryUsabe() * 100;
+  if(usage_ < 20){
+    curMemtableSize_ = initMemtableSize;
+  }
   if(DEBUG_PRINT){
-    double usage1 = pmAlloc_->getMemoryUsabe();
     std::cout<< "compaction at level 2, cost time : "<< imm_micros / 1000;
-    std::cout<< " memoryUsage: "<<usage1;
+    std::cout<< " memoryUsage: "<< usage_ * 1.0 / 100;
     std::cout<< " min key : " << rangeBegin << " max key : " << rangeEnd << std::endl;
   }
   if (!status.ok()) {
@@ -2061,17 +2078,27 @@ void DBImpl::MergeL1(){
 
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
+  // mutex_.Unlock();
+
   mutex_l0_.lock();
   l0_num_ = Table_L0_.size();
   mutex_l0_.unlock();
-  double usage = pmAlloc_->getMemoryUsabe();
 
-  if (imm_ != nullptr && l0_num_ < L0BufferCount * ratio_L0_ && !needGC && !flushSSD && usage <= memory_rate) {
+  // mutex_.Lock();
+  usage_ = pmAlloc_->getMemoryUsabe() * 100;
+
+  if(usage_ < 95){
+    space_signal_.SignalAll();
+  }
+
+  if (imm_ != nullptr && l0_num_ < L0BufferCount * ratio_L0_ && !needGC && !flushSSD && usage_ <= memory_rate * 100) {
     CompactMemTable();
     conVar_.notify_one();
     //CompactMemTableToPM();
+    background_work_finished_signal_.SignalAll();
     return;
   }
+  background_work_finished_signal_.SignalAll();
   // std::chrono::milliseconds duration(2);  // 定义等待的时间间隔，单位为毫秒
   // std::this_thread::sleep_for(duration);  // 线程休眠指定的时间
   // Compaction* c;
@@ -2926,10 +2953,10 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // one is still being compacted, so we wait.
       Log(options_.info_log, "Current memtable full; waiting...\n");
       background_work_finished_signal_.Wait();
-    } else if (l0_num_ >= L0BufferCount) {
+    } else if (l0_num_ >= L0BufferCountMax * ratio_L0_ || usage_ > 95) {
       // There are too many level-0 files.
       Log(options_.info_log, "Too many L0 files; waiting...\n");
-      background_work_finished_signal_.Wait();
+      space_signal_.Wait();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old
       assert(versions_->PrevLogNumber() == 0);

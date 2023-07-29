@@ -1,15 +1,15 @@
 23
-./ycsbc -db leveldb -dbpath /media/nvme1/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/load80G1kb.spec -load true -dboption 1 -dbstatistics true -timeseries false -latency true
+./ycsbc -db leveldb -dbpath /media/nvme/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/load80G1kb.spec -load true -dboption 1 -dbstatistics true -timeseries false -latency true
 23
-./ycsbc -db leveldb -dbpath /media/nvme1/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloada_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
+./ycsbc -db leveldb -dbpath /media/nvme/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloada_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
 23
-./ycsbc -db leveldb -dbpath /media/nvme1/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloadb_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
+./ycsbc -db leveldb -dbpath /media/nvme/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloadb_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
 23
-./ycsbc -db leveldb -dbpath /media/nvme1/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloadc_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
+./ycsbc -db leveldb -dbpath /media/nvme/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloadc_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
 23
-./ycsbc -db leveldb -dbpath /media/nvme1/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloadd_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
+./ycsbc -db leveldb -dbpath /media/nvme/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloadd_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
 23
-./ycsbc -db leveldb -dbpath /media/nvme1/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloade_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
+./ycsbc -db leveldb -dbpath /media/nvme/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloade_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
 23
-./ycsbc -db leveldb -dbpath /media/nvme1/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloadf_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
+./ycsbc -db leveldb -dbpath /media/nvme/pm_test -pmpath /mnt/pmem0.1/pm_test -flushssd true -threads 1 -P workloads/workloadf_1k.spec -run true -dboption 1 -dbstatistics true -timeseries false -latency true
 0
