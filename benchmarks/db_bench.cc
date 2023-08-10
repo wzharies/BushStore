@@ -979,6 +979,8 @@ class Benchmark {
         //   found++;
         // else
         //   wrong++;
+      }else{
+        // bytes += key.slice().size();
       }
       // else{
       //   printf("%d not found.\n", k);

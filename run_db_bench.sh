@@ -15,8 +15,8 @@ sata_path=/tmp/pm_test
 # ssd_path=/tmp/pm_test
 ssd_path=/media/nvme/pm_test
 pm_path=/mnt/pmem0.1/pm_test
-# leveldb_path=/tmp/leveldb-wzh
-leveldb_path=$ssd_path
+# leveldb_path=/tmp/leveldb
+leveldb_path=$pm_path
 output_path=$db_path/output
 output_file=$output_path/result.out
 
@@ -34,24 +34,12 @@ write_buffer_size=$((64*$MB))
 max_file_size=$((128*$MB))
 pm_size=$((180*$GB))
 bucket_nums=$((4*$MB)) # bucket_nums * 4 > nums_kvs
-max_open_files=$((2000))
+max_open_files=$((10000))
+reads=$((-1))
 use_pm=1
 flush_ssd=0
 throughput=0
 dynamic_tree=1
-
-WRITE10G() {
-    pm_path=$sata_path
-    leveldb_path=$sata_path
-    # leveldb_path=$pm_path;
-    value_size=1000
-    num_thread=1
-    num_kvs=$((10*$MB))
-    # write_buffer_size=$((3*$MB))
-    max_file_size=$((100*$MB))
-    pm_size=$((20*$GB))
-    bucket_nums=$((4*$MB)) # bucket_nums * 4 > nums_kvs
-}
 WRITE80G_FLUSHSSD() {
     leveldb_path=$ssd_path;
     value_size=$((4*$KB))
@@ -113,7 +101,7 @@ WRITE80G-64K() {
 WRITE40G-4K() {
     value_size=$((4*$KB))
     num_kvs=$((40*$GB / $value_size))
-    bucket_nums=$((8*$MB)) # bucket_nums * 4 > nums_kvs
+    bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
 }
 
 WRITE80G_8GNVM() {
@@ -182,18 +170,6 @@ WRITE80G_64GNVM_4K() {
     flush_ssd=1
 }
 
-# WRITE100G() {
-#     # leveldb_path=$pm_path;
-#     value_size=1000
-#     num_thread=1
-#     num_kvs=$((100*$MB))
-#     # write_buffer_size=$((40*$MB))
-#     max_file_size=$((1024*$MB))
-#     pm_size=$((200*$GB))
-#     bucket_nums=$((40*$MB)) # bucket_nums * 4 > nums_kvs
-#     use_pm=1
-# }
-
 RUN_DB_BENCH() {
     CLEAN_DB
     if [ -f "$output_file" ]; then
@@ -206,6 +182,7 @@ RUN_DB_BENCH() {
                 --write_buffer_size=$write_buffer_size \
                 --max_file_size=$max_file_size \
                 --open_files=$max_open_files \
+                --reads=$reads \
                 --pm_size=$pm_size \
                 --pm_path=$pm_path \
                 --db=$leveldb_path \
@@ -252,6 +229,24 @@ CLEAN_DB() {
 #   mkdir -p $pm_path
 }
 
+CLEAN_ALL_DB() {
+  if [ -z "$pm_path" ]
+  then
+        echo "PM path empty."
+        exit
+  fi
+  if [ -z "$leveldb_path" ]
+  then
+        echo "DB path empty."
+        exit
+  fi
+  find ${pm_path:?}  -type f ! -name 'allocator.edb' -delete
+  find ${leveldb_path:?}  -type f ! -name 'allocator.edb' -delete
+#   rm -rf ${leveldb_path:?}/*
+#   rm -rf ${pm_path:?}/*
+#   mkdir -p $pm_path
+}
+
 SET_OUTPUT_PATH() {
     if [ ! -d "$output_path" ]; then
         # 如果目录不存在，则创建目录
@@ -272,11 +267,9 @@ MAKE() {
     # 如果目录不存在，则创建目录
     mkdir "$db_bench"
   fi
-#   cd $db_bench
-  cmake --build /home/wzh/leveldb-pm/build --config Release --target all --parallel --
-#   cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. 
-#   make -j64
-#   cd ..
+  cd $db_bench
+  cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build .
+  cd ..
 
   cd "$ycsb_path" || exit
   make clean
@@ -373,6 +366,7 @@ DB_BENCH_THROUGHPUT() {
 }
 
 DB_BENCH_TEST_FLUSHSSD() {
+    leveldb_path=$ssd_path;
     echo "----------db_bench_flushssd----------"
     APP_PREFIX=""
     benchmarks="fillrandom,readrandom,stats"
@@ -422,10 +416,11 @@ DB_BENCH_TEST_FLUSHSSD() {
     APP_PREFIX="numactl --cpunodebind=0 --membind=0"
     pm_size=$((180*$GB))
     flush_ssd=0
-    # leveldb_path=$pm_path;
+    leveldb_path=$pm_path;
 }
 
 DB_BENCH_TEST_FLUSHSSD_4K() {
+    leveldb_path=$ssd_path;
     echo "----------db_bench_flushssd----------"
     APP_PREFIX=""
     benchmarks="fillrandom,readrandom,stats"
@@ -475,7 +470,7 @@ DB_BENCH_TEST_FLUSHSSD_4K() {
     APP_PREFIX="numactl --cpunodebind=0 --membind=0"
     pm_size=$((180*$GB))
     flush_ssd=0
-    # leveldb_path=$pm_path;
+    leveldb_path=$pm_path;
 }
 
 YCSB_TEST(){
@@ -486,10 +481,16 @@ YCSB_TEST(){
     ycsb_input=1KB_ALL
     RUN_YCSB
 
-    echo "-----4KB YCSB performance-----"
-    output_file=$output_path/YCSB_4KB
-    ycsb_input=4KB_ALL
-    RUN_YCSB
+    # echo "------------YCSB------------"
+    # echo "-----1KB YCSB performance-----"
+    # output_file=$output_path/YCSB_1KB
+    # ycsb_input=1KB_ALL
+    # RUN_YCSB
+
+    # echo "-----4KB YCSB performance-----"
+    # output_file=$output_path/YCSB_4KB
+    # ycsb_input=4KB_ALL
+    # RUN_YCSB
     cd ..
 }
 
@@ -569,6 +570,7 @@ WRITE_TIME_ANALYSIS(){
 }
 
 THREAD_COUNT_ANALYSIS(){
+    leveldb_path=$ssd_path;
     echo "------thread count analysis-------"
     benchmarks="fillrandom,stats"
     echo "---- 1 thread ----"
@@ -678,12 +680,14 @@ DATA_SIZE_ANALYSIS(){
     echo "------data size analysis-------"
     benchmarks="fillrandom,readrandom,stats"
 
-    # echo "---- 40GB 8GNVM----"
-    # output_file=$output_path/data_40G
-    # pm_size=$((8*$GB))
-    # write_buffer_size=$((64*$MB))
-    # num_kvs=$((40*$GB / $value_size))
-    # RUN_DB_BENCH
+    CLEAN_ALL_DB
+
+    echo "---- 40GB 8GNVM----"
+    output_file=$output_path/data_40G
+    pm_size=$((8*$GB))
+    write_buffer_size=$((64*$MB))
+    num_kvs=$((40*$GB / $value_size))
+    RUN_DB_BENCH
 
     # echo "---- 80GB 16GNVM----"
     # output_file=$output_path/data_80G
@@ -779,29 +783,52 @@ function SMALL_VALUE_TEST(){
     RUN_DB_BENCH
 }
 
+function MALLOC_FLUSH_TEST(){
+    echo "------malloc flush analysis-------"
+    benchmarks="fillrandom,readrandom,stats"
+
+    echo "---- with malloc flush ----"
+    sed -i 's/MALLO_CFLUSH = false/MALLO_CFLUSH = true/g' "$db_path"/util/global.h
+    MAKE
+    output_file=$output_path/MALLOC_FLUSH_YES_RW_NVM_1K
+    WRITE80G
+    RUN_DB_BENCH
+
+    echo "---- without malloc flush ----"
+    sed -i 's/MALLO_CFLUSH = true/MALLO_CFLUSH = false/g' "$db_path"/util/global.h
+    MAKE
+    output_file=$output_path/MALLOC_FLUSH_NO_RW_NVM_1K
+    WRITE80G
+    RUN_DB_BENCH
+
+    sed -i 's/MALLO_CFLUSH = true/MALLO_CFLUSH = false/g' "$db_path"/util/global.h
+    MAKE
+}
+
 MAKE
 SET_OUTPUT_PATH
 
-# echo "chapter 4.1"
-# DB_BENCH_TEST
-# DB_BENCH_THROUGHPUT
-# SMALL_VALUE_TEST
-# DYNAMIC_TREE_ANALYSIS
+echo "chapter 4.1"
+DB_BENCH_TEST
+DB_BENCH_THROUGHPUT
+SMALL_VALUE_TEST
+DYNAMIC_TREE_ANALYSIS
 
-# echo "chapter 4.2"
-# YCSB_TEST
-# YCSB_TEST_LATENCY
+echo "chapter 4.2"
+YCSB_TEST
+YCSB_TEST_LATENCY
 
 echo "chapter 4.3"
-DB_BENCH_TEST_FLUSHSSD
-# DB_BENCH_TEST_FLUSHSSD_4K
 YCSB_TEST_SSD
 THREAD_COUNT_ANALYSIS
+DB_BENCH_TEST_FLUSHSSD
+# DB_BENCH_TEST_FLUSHSSD_4K
 DATA_SIZE_ANALYSIS
 
-# echo "chapter 4.4"
-# CUCKOO_FILTER_ANALYSIS
-# WRITE_TIME_ANALYSIS
+echo "chapter 4.4"
+MALLOC_FLUSH_TEST
+WRITE_TIME_ANALYSIS
+CUCKOO_FILTER_ANALYSIS
 
 CLEAN_DB
 # sudo cp build/libleveldb.a /usr/local/lib/

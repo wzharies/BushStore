@@ -878,7 +878,9 @@ int DBImpl::PickCompactionPM(){
     如果L0数量太多就写入L1，如果usage太大，则设置gc
   */
   
-  if(l0_num_ >= 10){
+  if(CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
+    level = 0;
+  }else if(!CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
     level = 0;
   }
   if(usage_ > memory_rate * 100){

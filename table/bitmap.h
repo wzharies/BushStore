@@ -3,6 +3,9 @@
 #include<memory>
 #include<iostream>
 #include<cassert>
+#include "util/global.h"
+
+#include "bplustree/persist.h"
 
 namespace leveldb{
 class Bitmap{
@@ -17,6 +20,9 @@ public:
         int innerIndex = (index & 7);
         assert(!get(index));
         bitmaps_[charIndex] |= (1 << innerIndex);
+        if(MALLO_CFLUSH){
+            clflush(&bitmaps_[charIndex], 1);
+        }
     };
 
     void clr(size_t index){
@@ -25,6 +31,9 @@ public:
         int innerIndex = (index & 7);
         assert(get(index));
         bitmaps_[charIndex] ^= (1 << innerIndex);
+        if(MALLO_CFLUSH){
+            clflush(&bitmaps_[charIndex], 1);
+        }
     };
 
     bool get(size_t index){

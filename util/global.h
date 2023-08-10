@@ -27,16 +27,18 @@ constexpr int minMergeCount = 1;
 constexpr int maxMergeCount = 15;
 constexpr int L0BufferCount = 25;
 constexpr int L0BufferCountMax = 35;
+constexpr int MinCompactionL0Count = 8;
 
 // compile
 constexpr bool CUCKOO_FILTER = true;
 constexpr bool DEBUG_CHECK = false;
 constexpr bool DEBUG_PRINT = false;
-constexpr bool TIME_ANALYSIS = true; // must be true
+constexpr bool TIME_ANALYSIS = true; // must be true, dynamic change B+Tree size reley on it
 constexpr bool READ_TIME_ANALYSIS = false;
 constexpr bool WRITE_TIME_ANALYSIS = false;
 
-constexpr bool SKIPLIST_NVM = false;
+constexpr bool SKIPLIST_NVM = false; // no use
+constexpr bool MALLO_CFLUSH = false;
 
 struct ReadStats {
   int64_t readCount = 0;
