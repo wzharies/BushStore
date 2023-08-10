@@ -58,15 +58,7 @@ public:
     }
     uint32_t pointer = (reinterpret_cast<uint64_t>(getRelativeAddr(page_pm_)) >> 12);
     lastWrite += (key.size() + value.size());
-    bool flush;
-    if(lastWrite > 32 * 1024){ //leveldb use 32K as flush size
-      flush = true;
-      lastWrite = 0;
-    }else{
-      flush = false;
-    }
     value_offset_ = page_pm_->setkv(value_nums_, value_offset_, key, value, true);
-    // pm_alloc_->Sync();
     assert(value_nums_ >= 4);
     return std::make_tuple(pointer, value_nums_++);
   }
