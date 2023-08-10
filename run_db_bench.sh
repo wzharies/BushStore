@@ -487,10 +487,10 @@ YCSB_TEST(){
     # ycsb_input=1KB_ALL
     # RUN_YCSB
 
-    # echo "-----4KB YCSB performance-----"
-    # output_file=$output_path/YCSB_4KB
-    # ycsb_input=4KB_ALL
-    # RUN_YCSB
+    echo "-----4KB YCSB performance-----"
+    output_file=$output_path/YCSB_4KB
+    ycsb_input=4KB_ALL
+    RUN_YCSB
     cd ..
 }
 
@@ -689,26 +689,26 @@ DATA_SIZE_ANALYSIS(){
     num_kvs=$((40*$GB / $value_size))
     RUN_DB_BENCH
 
-    # echo "---- 80GB 16GNVM----"
-    # output_file=$output_path/data_80G
-    # pm_size=$((16*$GB))
-    # write_buffer_size=$((64*$MB))
-    # num_kvs=$((80*$GB / $value_size))
-    # RUN_DB_BENCH
+    echo "---- 80GB 16GNVM----"
+    output_file=$output_path/data_80G
+    pm_size=$((16*$GB))
+    write_buffer_size=$((64*$MB))
+    num_kvs=$((80*$GB / $value_size))
+    RUN_DB_BENCH
 
-    # echo "---- 120GB 24GNVM----"
-    # output_file=$output_path/data_120G
-    # pm_size=$((24*$GB))
-    # write_buffer_size=$((64*$MB))
-    # num_kvs=$((120*$GB / $value_size))
-    # RUN_DB_BENCH
+    echo "---- 120GB 24GNVM----"
+    output_file=$output_path/data_120G
+    pm_size=$((24*$GB))
+    write_buffer_size=$((64*$MB))
+    num_kvs=$((120*$GB / $value_size))
+    RUN_DB_BENCH
 
-    # echo "---- 160GB 32GNVM----"
-    # output_file=$output_path/data_160G
-    # pm_size=$((32*$GB))
-    # write_buffer_size=$((64*$MB))
-    # num_kvs=$((160*$GB / $value_size))
-    # RUN_DB_BENCH
+    echo "---- 160GB 32GNVM----"
+    output_file=$output_path/data_160G
+    pm_size=$((32*$GB))
+    write_buffer_size=$((64*$MB))
+    num_kvs=$((160*$GB / $value_size))
+    RUN_DB_BENCH
 
     echo "---- 200GB 40GNVM----"
     output_file=$output_path/data_200G
