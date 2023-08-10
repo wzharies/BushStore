@@ -163,8 +163,7 @@ public:
     addr->clrBitMap(index());
     // addr->bitmap = addr->bitmap & (~(1ULL << index()));
     if (addr->nums() == 0) {
-      // TODO vPage需要删除,最好把pmALloc设置为全局变量或者单例
-      // std::cout<< "free : " << addr <<std::endl;
+            // std::cout<< "free : " << addr <<std::endl;
       // needFreeVPgaes_.push_back((char*)addr);
       alloc_->freePage((char*)addr, value_t);
     }
@@ -207,8 +206,7 @@ class BP_Iterator_Trim : public IteratorBTree {
     // releaseKpage();
   }
 
-  //  前闭后开
-  void setKeyStartAndEnd(Slice startk, Slice endk,
+    void setKeyStartAndEnd(Slice startk, Slice endk,
                          const Comparator* comparator) {
     startKey = startk;
     endKey = endk;
@@ -249,8 +247,7 @@ class BP_Iterator_Trim : public IteratorBTree {
     // ((kPage*)kPages_.front())->minRawKey() <<" to :" <<
     // ((kPage*)kPages_.back())->maxRawKey() <<std::endl;
     if (kPages_.size() == 1 && !skipKpage) {
-      // 可能性很小，懒得写了
-      ((kPage*)kPages_[0])->remove(start_pos_index_, pos_data_);
+            ((kPage*)kPages_[0])->remove(start_pos_index_, pos_data_);
       if (((kPage*)kPages_[0])->nums == 0) {
         alloc_->freePage((char*)kPages_[0], key_t);
       }
@@ -327,10 +324,8 @@ class BP_Iterator_Trim : public IteratorBTree {
 
   void NextInternal() {
     pos_data_++;
-    // 超过kpage索引范围
-    if (pos_data_ == kpage_->nums) {
-      // 超过bnode的索引范围
-      // kpage_count_--;
+        if (pos_data_ == kpage_->nums) {
+            // kpage_count_--;
       if (pos_index_ < index_page_->num()) {
         pos_index_++;
       } else {
@@ -370,8 +365,7 @@ class BP_Iterator_Trim : public IteratorBTree {
   uint16_t index() const override { return kpage_->index[pos_data_]; }
 
   Slice value() const override {
-    // TODO 也许可以优化？
-    vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
+        vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
     return addr->v(index());
   }
 
@@ -385,8 +379,7 @@ class BP_Iterator_Trim : public IteratorBTree {
     addr->clrBitMap(index());
     // addr->bitmap = addr->bitmap & (~(1ULL << index()));
     if (addr->nums() == 0) {
-      // TODO vPage需要删除,最好把pmALloc设置为全局变量或者单例
-      //  std::cout<< "free : " << addr <<std::endl;
+            //  std::cout<< "free : " << addr <<std::endl;
       vPages_.push_back((char*)addr);
       // alloc_->freePage((char*)addr, value_t);
     }
@@ -404,17 +397,12 @@ class BP_Iterator_Trim : public IteratorBTree {
   std::vector<void*>& pages_;
   std::vector<char*> kPages_;
   std::vector<char*> vPages_;
-  // int kpage_count_;  // 几个kpage，即bnode中kv的数量
-
-  int cur_index_page_;  // 第几个bnode
-  bnode* index_page_;
+  // int kpage_count_;  
+  int cur_index_page_;    bnode* index_page_;
   kPage* kpage_;
-  int pos_index_;  // bnode的索引
-  int pos_data_;   // kpage内部的索引
-  bool valid_ = false;
+  int pos_index_;    int pos_data_;     bool valid_ = false;
   bool autoClearVpage = false;
-  // 闭区间，由于getOverlap的精度只有bnode级别，但是但是多出的kpage不能在迭代器中生效，需要头尾做裁剪。
-  bool needTrim = false;
+    bool needTrim = false;
   const Comparator* comparator_;
   Slice startKey;
   Slice endKey;
@@ -489,8 +477,7 @@ class BP_Iterator : public IteratorBTree {
     // ((kPage*)kPages_.front())->minRawKey() <<" to :" <<
     // ((kPage*)kPages_.back())->maxRawKey() <<std::endl;
     if (kPages_.size() == 1 && !skipKpage) {
-      // 可能性很小，懒得写了
-      ((kPage*)kPages_[0])->remove(start_pos_index_, pos_data_);
+            ((kPage*)kPages_[0])->remove(start_pos_index_, pos_data_);
       if (((kPage*)kPages_[0])->nums == 0) {
         alloc_->freePage((char*)kPages_[0], key_t);
       }
@@ -548,10 +535,8 @@ class BP_Iterator : public IteratorBTree {
 
   void NextInternal() {
     pos_data_++;
-    // 超过kpage索引范围
-    if (pos_data_ == kpage_->nums) {
-      // 超过bnode的索引范围
-      kpage_count_--;
+        if (pos_data_ == kpage_->nums) {
+            kpage_count_--;
       if (pos_index_ < index_page_->num()) {
         pos_index_++;
       } else {
@@ -591,8 +576,7 @@ class BP_Iterator : public IteratorBTree {
   uint16_t index() const override { return kpage_->index[pos_data_]; }
 
   Slice value() const override {
-    // TODO 也许可以优化？
-    vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
+        vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer()) << 12);
     return addr->v(index());
   }
 
@@ -606,8 +590,7 @@ class BP_Iterator : public IteratorBTree {
     addr->clrBitMap(index());
     // addr->bitmap = addr->bitmap & (~(1ULL << index()));
     if (addr->nums() == 0) {
-      // TODO 这里有bug，如果是实时free，并发场景会有正确性问题. 但如果缓存最后free，那么compaction + GC的时候PM空间就不够用了
-
+      
       //  std::cout<< "free : " << addr <<std::endl;
       alloc_->freePage((char*)addr, value_t);
       // vPages_.push_back((char*)addr);
@@ -627,17 +610,12 @@ class BP_Iterator : public IteratorBTree {
   std::vector<void*>& pages_;
   std::vector<char*> kPages_;
   std::vector<char*> vPages_;
-  int kpage_count_;  // 几个kpage，即bnode中kv的数量
-
-  int cur_index_page_;  // 第几个bnode
-  bnode* index_page_;
+  int kpage_count_;  
+  int cur_index_page_;    bnode* index_page_;
   kPage* kpage_;
-  int pos_index_;  // bnode的索引
-  int pos_data_;   // kpage内部的索引
-  bool valid_ = false;
+  int pos_index_;    int pos_data_;     bool valid_ = false;
   bool autoClearVpage = false;
-  // 闭区间，由于getOverlap的精度只有bnode级别，但是但是多出的kpage不能在迭代器中生效，需要头尾做裁剪。
-  bool needTrim = false;
+    bool needTrim = false;
   const Comparator* comparator_;
   Slice startKey;
   Slice endKey;

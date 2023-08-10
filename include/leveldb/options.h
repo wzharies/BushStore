@@ -143,8 +143,7 @@ struct LEVELDB_EXPORT Options {
   const FilterPolicy* filter_policy = nullptr;
 
   // int bucket_nums = 0x1000000;
-  //没有pm的情况，大概有所有key count的十分之一，以防万一，乘以2倍看看
-  int bucket_nums = 128 * 1024 * 1024;
+    int bucket_nums = 128 * 1024 * 1024;
   // std::string pm_path_ = "/media/nvme/pm_test";
   std::string pm_path_ = "/mnt/pmem0.1/pm_test/";
   // size_t key_size_ = 8;

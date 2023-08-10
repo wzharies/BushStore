@@ -43,8 +43,7 @@ PMMemAllocator::PMMemAllocator(const Options& options) : options_(options), new_
   kPage_slot_count_ = (256 - 16) / 8;
   kPage_size_ =
       SuitablePageSize(256 + kPage_slot_count_ * 16);
-  //算上bitmap的空间, 减去bitmap->num的8Byte，然后每个kpage多用了1bit
-  kPage_count_ = calPageCount(options_.extent_size_, kPage_size_);
+    kPage_count_ = calPageCount(options_.extent_size_, kPage_size_);
 
   // vPage_slot_count_ = (256 - 16) / 4;
   vPage_size_ = VPAGE_CAPACITY;

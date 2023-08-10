@@ -249,12 +249,10 @@ CLEAN_ALL_DB() {
 
 SET_OUTPUT_PATH() {
     if [ ! -d "$output_path" ]; then
-        # 如果目录不存在，则创建目录
         mkdir "$output_path"
         echo "Created output_path: $output_path"
     fi
     # else
-    #     # 如果目录已存在，则清空目录下的所有文件
     #     rm -rf "${output_path:?}/"*
     #     echo "Cleared output_path: $output_path"
     # fi
@@ -264,7 +262,6 @@ SET_OUTPUT_PATH() {
 
 MAKE() {
   if [ ! -d "$db_bench" ]; then
-    # 如果目录不存在，则创建目录
     mkdir "$db_bench"
   fi
   cd $db_bench
@@ -487,10 +484,10 @@ YCSB_TEST(){
     # ycsb_input=1KB_ALL
     # RUN_YCSB
 
-    # echo "-----4KB YCSB performance-----"
-    # output_file=$output_path/YCSB_4KB
-    # ycsb_input=4KB_ALL
-    # RUN_YCSB
+    echo "-----4KB YCSB performance-----"
+    output_file=$output_path/YCSB_4KB
+    ycsb_input=4KB_ALL
+    RUN_YCSB
     cd ..
 }
 

@@ -813,9 +813,7 @@ void DBImpl::BGWork(void* db) {
 }
 
 void DBImpl::BackgroundCall() {
-  std::chrono::milliseconds duration(1);  // 定义等待的时间间隔，单位为毫秒
-  std::this_thread::sleep_for(duration);  // 线程休眠指定的时间
-  // if (shutting_down_.load(std::memory_order_acquire)) {
+  std::chrono::milliseconds duration(1);    std::this_thread::sleep_for(duration);    // if (shutting_down_.load(std::memory_order_acquire)) {
   //   // No more background work when shutting down.
   //   background_compaction_scheduled_ = false;
   //   background_work_finished_signal_.SignalAll();
@@ -873,10 +871,7 @@ int DBImpl::PickCompactionPM(){
   l0_num_ = Table_L0_.size();
   mutex_l0_.unlock();
 
-  /*
-    不设置GC场景了，如果L0数量太多就写入L1，如果usage太大，就刷入ssd
-    如果L0数量太多就写入L1，如果usage太大，则设置gc
-  */
+  
   
   if(CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
     level = 0;
@@ -904,8 +899,7 @@ int DBImpl::PickCompactionPM(){
 // void tryDeleteTable(std::vector<lbtree*>& table){
 //   std::vector<lbtree*> newTable;
 //   for(int i = 0; i < table.size(); i++){
-//     // 如果有正在读取的人，则不释放，否者可以直接释放资源
-//     int expected = 0;
+//     //     int expected = 0;
 //     if(table[i]->reader_count.compare_exchange_weak(expected, INT_MIN)){
 //       free(table[i]->tree_meta->addr);
 //       delete table[i];
@@ -916,28 +910,16 @@ int DBImpl::PickCompactionPM(){
 //   std::swap(table, newTable);
 // }
 
-/*
-1: 100M * 10;
-2: 10G;
-3: 100G;
-超过100G的话，PM可能才需要增加一层
-*/
 Status DBImpl::CompactionLevel0(){
-  // 第1和第2层之间compaction，第一层的所有数据与第二层进行compaction。生成一颗子树，第一层的所有tree直接free掉。
-  // TODO， 如果L0的范围完全包裹了L1，则可以直接删除L1，
-  // TODO, 如果L0的范围与L1不重合，则也可以进行优化
-  // TODO， 如果L0的数量与L1相差太大。。。
-  // finished
-  // TODO，每次compaction的时候不需要把L0与L1全部compaction，因为划分成不重叠的子部分进行compaction。
-  uint64_t imm_micros = 0;  // Micros spent doing imm_ compactions
+          // finished
+    uint64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   uint64_t start_micros = 0;
   int level = 1;
   if (TIME_ANALYSIS){
     start_micros = env_->NowMicros();
   }
   // checkAndSetGC();
-  // 1. 将L0的table排序，这次compaction需要将L0中的table清空掉
-  int mergeSize;
+    int mergeSize;
   // if(compactL0Count_.load() < Table_L0_.size()){
   //   mergeSize = compactL0Count_.load();
   // }else{
@@ -965,9 +947,7 @@ Status DBImpl::CompactionLevel0(){
   //   return Status::OK();
   // }
 
-  // × 从有序的L0_Table从每次取可以compaction的进行compaction
-  // 每次compaction都发L0的一起compaciton清空掉
-  // Table_L0_Merge.push_back(Table_L0_Sorted[0]);
+      // Table_L0_Merge.push_back(Table_L0_Sorted[0]);
   // key_type maxKey0 = Table_L0_Sorted.front()->tree_meta->max_key;
   // for(int i = 1; i < Table_L0_Sorted.size(); i++){
   //   lbtree* tree1 = Table_L0_Merge.back();
@@ -1001,13 +981,11 @@ Status DBImpl::CompactionLevel0(){
   }
   std::shared_ptr<lbtree> tree2 = nullptr;
   std::vector<std::vector<void*>> pages2;
-  // TODO，如果范围不重叠，不需BuildTable重写
-  if (!Table_LN_.empty()) {
+    if (!Table_LN_.empty()) {
     tree2 = Table_LN_[0];
     int index_start_pos2 = 0;
     int output_page_count = 0;
-    // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
-    pages2 =
+        pages2 =
         tree2->getOverlapping(minKey, maxKey, &index_start_pos2,
                               &output_page_count, &tree2_start, &tree2_end, kBegin, kEnd);
     if(kEnd != nullptr && kEnd->maxRawKey() < maxKey){
@@ -1065,14 +1043,10 @@ Status DBImpl::CompactionLevel0(){
       if (isNeedGC()) {
       // if (input->getCapacityUsage() < usage_ / 2) {
       // if (isNeedGC() || input->getCapacityUsage() < usage_ / 2) {
-        // 重写到新的kPage，用新的索引
-        //  1. kPage中的数据重写
-        builder.add(key, input->value(), input->finger());
-        // 2. 旧的vPage中的数据删除
-        input->clrValue();
+                        builder.add(key, input->value(), input->finger());
+                input->clrValue();
       } else {
-        // 重写到新的kPage，用旧的索引，kPage中的数据重写，vPage中的数据不动
-        // auto check = [&](uint16_t index, uint32_t pointer, Slice& key){
+                // auto check = [&](uint16_t index, uint32_t pointer, Slice& key){
         //   vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer) << 12);
         //   assert(addr->v(index).size() == 1000);
         // };
@@ -1080,21 +1054,16 @@ Status DBImpl::CompactionLevel0(){
         builder.add(key, input->finger(), input->pointer(), input->index());
       }
     } else {
-      // 修改vPage，bitmap置空
-      input->clrValue();
+            input->clrValue();
     }
     input->Next();
   }
   std::shared_ptr<lbtree> tree = nullptr;
-  // 返回生成的kPage的地址,还有最大最小的key。（最好直接返回子树），同时让这颗子树提供服务
-  auto [pages3, firstPage, lastPage] = builder.finish(tree);
+    auto [pages3, firstPage, lastPage] = builder.finish(tree);
 
-  // replace指定范围的B-Tree的索引和kPage,
-  // 自底向上（不会死锁，锁用一个释放一个）
-  {
+      {
     std::lock_guard<std::mutex> lock(mutex_l1_);
-    // 代替tree2， 所以需要释放之前的所有page
-    if (tree2 != nullptr &&
+        if (tree2 != nullptr &&
         tree->tree_meta->min_key <= tree2->tree_meta->min_key &&
         tree2->tree_meta->max_key <= tree->tree_meta->max_key) {
       Table_LN_[0]->needFreeNodePages = pages2;
@@ -1118,8 +1087,7 @@ Status DBImpl::CompactionLevel0(){
       lastPage->setNext(kEnd);
     }
   }
-  // 删除iterator
-  if (tree2 != nullptr) {
+    if (tree2 != nullptr) {
     ((BP_Iterator_Trim*)its.back())->releaseKVpage();
     delete its.back();
     its.pop_back();
@@ -1134,8 +1102,7 @@ Status DBImpl::CompactionLevel0(){
     Table_LN_[0]->reverseAndCheck();
     Table_LN_[0]->checkIterator();
   }
-  // 释放L0的资源
-  // 1. delete L0 table
+    // 1. delete L0 table
   mutex_l0_.lock();
   if(CUCKOO_FILTER){
     cuckoo_filter_->minFileNumber += Table_L0_Merge.size();
@@ -1187,8 +1154,7 @@ Status DBImpl::CompactionLevel0(){
   }
   // // 2. release tree
   // for(int i = 0; i < max_count; i++){
-  //   // 如果有正在读取的人，则放入Table_delete中，否者可以直接释放资源
-  //   int expected = 0;
+  //     //   int expected = 0;
   //   if(Table_L0_Merge[i]->reader_count.compare_exchange_weak(expected,
   //   INT_MIN)){
   //     delete Table_L0_Merge[i];
@@ -1197,8 +1163,7 @@ Status DBImpl::CompactionLevel0(){
   //     Table_Delete_.push_back(Table_L0_Merge[i]);
   //   }
   // }
-  // 第2 层与ssdcompaction。直接删除掉sst文件对应的子树
-
+  
   //   int index_start_pos1 = 0;
   //   int index_start_pos2 = 0;
   //   key_type tree1_start;
@@ -1207,15 +1172,12 @@ Status DBImpl::CompactionLevel0(){
   //   key_type tree2_end;
   //   lbtree* tree1 = Table_LN_[level - 1];
   //   lbtree* tree2 = Table_LN_[level];
-  //   int input_page_count = 20; //指的是kpage数量
-  //   int output_page_count = 0;
-  //   // 在B+Tree中选择一个子树出来， 记录下遍历的所有节点（最底层可以不用存）
-  //   std::vector<std::vector<void *>> pages1 =
+  //   int input_page_count = 20;   //   int output_page_count = 0;
+  //     //   std::vector<std::vector<void *>> pages1 =
   //   tree1->pickInput(input_page_count, &index_start_pos1, &tree1_start,
   //   &tree1_end);
   //   //
-  //   根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
-  //   std::vector<std::vector<void *>> pages2 =
+    //   std::vector<std::vector<void *>> pages2 =
   //   tree2->getOverlapping(tree1_start, tree1_end, &index_start_pos2,
   //   &output_page_count, &tree2_start, &tree2_end); BP_Iterator* it1 = new
   //   BP_Iterator(pmAlloc_, tree1, pages1[1], index_start_pos1,
@@ -1257,31 +1219,24 @@ Status DBImpl::CompactionLevel0(){
   //       last_sequence_for_key = ikey.sequence;
   //     }
   //     if(!drop){
-  //       //重写到新的kPage，用旧的索引
-  //       builder.add(key, input->finger(), input->pointer(), input->index());
+  //         //       builder.add(key, input->finger(), input->pointer(), input->index());
   //       if(isNeedGC()){
-  //         //重写到新的kPage，用新的索引
-  //         input->clrValue();
+  //           //         input->clrValue();
   //         builder.add(key, input->value(), input->finger());
   //       }
 
   //     }else{
-  //       //修改vPage，bitmap置空
-  //       input->clrValue();
+  //         //       input->clrValue();
   //     }
 
   //   }
   //   lbtree *tree = nullptr;
   //   //
-  //   返回生成的kPage的地址,还有最大最小的key。（最好直接返回子树），同时让这颗子树提供服务
-  //   std::vector<std::vector<void*>> pages3 = builder.finish(tree);
+    //   std::vector<std::vector<void*>> pages3 = builder.finish(tree);
 
-  //   // delete指定范围的B-Tree的索引的和kPage，自底向上
-  //   tree1->rangeDelete(pages1, tree1_start, tree1_end);
+  //     //   tree1->rangeDelete(pages1, tree1_start, tree1_end);
 
-  //   // replace指定范围的B-Tree的索引和kPage,
-  //   自底向上（不会死锁，锁用一个释放一个） tree2->rangeReplace(pages2,
-  //   pages3, tree2_start, tree2_end);
+  //       //   pages3, tree2_start, tree2_end);
 
   //   for(int i = 0; i < its.size(); i++){
   //     delete its[i];
@@ -1320,15 +1275,13 @@ Status DBImpl::CompactionLevel1Concurrency(){
   
   bool writeSeq = files.empty() ? true : false;
 
-  // 如果sst，则每maxFileNumber个sst切分成一个任务
-  std::shared_ptr<lbtree> tree;
+    std::shared_ptr<lbtree> tree;
   {
     std::lock_guard<std::mutex> lock(mutex_l1_);
     tree = Table_LN_[0];
   }
 
-  //b+tree的选择范围
-  key_type start_key = c->smallest.empty()
+    key_type start_key = c->smallest.empty()
                            ? tree->tree_meta->min_key
                            : DecodeDBBenchFixed64(c->smallest.data()) + 1;
   if(writeSeq){
@@ -1338,8 +1291,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
                          ? tree->tree_meta->max_key + 1
                          : DecodeDBBenchFixed64(c->largest.data()) - 1;
 
-  //sst的选择范围
-  key_type sst_start = 0;
+    key_type sst_start = 0;
   key_type sst_end = 0;
   if(!writeSeq){
     sst_start = DecodeDBBenchFixed64(files.front()->smallest.Encode().data());
@@ -1355,8 +1307,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
   kPage* kEnd;
   mutex_.Unlock();
 
-  // 1. 读取对应的数量的bnode，并且获取sst begin和end对应的index
-  int sst_count = (files.size() + MAX_FILE_NUM - 1) / MAX_FILE_NUM;
+    int sst_count = (files.size() + MAX_FILE_NUM - 1) / MAX_FILE_NUM;
   pages2 = tree->getOverlappingMulTask(start_key, end_key, sst_count, sst_start,
                                        sst_end, new_start_key_, sst_page_index,
                                        sst_page_end_index, kBegin, kEnd);
@@ -1367,15 +1318,12 @@ Status DBImpl::CompactionLevel1Concurrency(){
     versions_->setCompactionPointer(new_start_key_, 2, c);
   }
 
-  // 2. 切分任务
-  std::vector<void*>& bnodes = pages2[1];
+    std::vector<void*>& bnodes = pages2[1];
   int new_start_index = -1;
   key_type new_start = 0;
 
-  // 整个范围的起始位置，主要是sst_start 与 start_key中的最小值
-  key_type rangeBegin = writeSeq ? start_key : std::min(sst_start, start_key);
-  // 整个范围结束的位置，主要是sst_end和bnode最大值中的最大值。
-  key_type rangeEnd = writeSeq ? new_start_key_ : std::max(sst_end, new_start_key_);
+    key_type rangeBegin = writeSeq ? start_key : std::min(sst_start, start_key);
+    key_type rangeEnd = writeSeq ? new_start_key_ : std::max(sst_end, new_start_key_);
 
   if(new_start_key_ > tree->tree_meta->max_key){
     new_start_key_ = 0;
@@ -1424,8 +1372,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
     }
   };
   auto fillTaskBySST = [&]() {
-    // 1. 记录sst的边界值
-    std::vector<key_type> starts;
+        std::vector<key_type> starts;
     for (int i = 0; i < files.size(); i += MAX_FILE_NUM) {
       starts.push_back(
           DecodeDBBenchFixed64(files[i]->smallest.Encode().data()));
@@ -1436,8 +1383,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
     starts.push_back(
         DecodeDBBenchFixed64(files.back()->largest.Encode().data()) + 1);
 
-    // 2 获取边界值对应的index
-    int cur = 0;
+        int cur = 0;
     int sst_index;
     int last_index;
     assert(starts.size() >= 2);
@@ -1461,15 +1407,12 @@ Status DBImpl::CompactionLevel1Concurrency(){
       start_index[cur] = bnodes.size() - 1;
       cur++;
     }
-    // 3. 生成对应的task
-    int removeFirst = -1;
+        int removeFirst = -1;
     int removeLast = -1;
     for (int i = 0; i < start_index.size() - 1; i++) {
       int begin_index = start_index[i] == -1 ? 0 : start_index[i];
-      //如果当前的所有sst范围都不在目前选中的bnodes中。
-      if (starts[i + 1] < ((bnode*)bnodes[begin_index])->kBegin()) {
-        // TODO 这种场景下的task可以移除，input也需要删除
-        removeFirst = std::min((int)files.size(), (i + 1) * MAX_FILE_NUM);
+            if (starts[i + 1] < ((bnode*)bnodes[begin_index])->kBegin()) {
+                removeFirst = std::min((int)files.size(), (i + 1) * MAX_FILE_NUM);
         continue;
       }
       if ((starts[i] > ((bnode*)bnodes.back())->kRealEnd())) {
@@ -1733,9 +1676,7 @@ Status DBImpl::CompactionLevel1Concurrency(){
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log, "compacted to: %s", versions_->LevelSummary(&tmp));
 
-  // replace指定范围的B-Tree的索引和kPage,
-  // 自底向上（不会死锁，锁用一个释放一个）
-  {
+      {
     std::lock_guard<std::mutex> lock(mutex_l1_);
     std::shared_ptr<lbtree> tree2 = Table_LN_[0];
     tree2->rangeDelete(pages2, rangeBegin, rangeEnd - 1);
@@ -1808,13 +1749,8 @@ Status DBImpl::CompactionLevel1(){
 // #ifdef CAL_TIME
 //   const uint64_t start_micros = env_->NowMicros();
 // #endif
-//   // 第1和第2层之间compaction，第一层的所有数据与第二层进行compaction。生成一颗子树，第一层的所有tree直接free掉。
-//   // TODO， 如果L0的范围完全包裹了L1，则可以直接删除L1，
-//   // TODO, 如果L0的范围与L1不重合，则也可以进行优化
-//   // TODO， 如果L0的数量与L1相差太大。。。
-//   // finished
-//   // TODO，每次compaction的时候不需要把L0与L1全部compaction，因为划分成不重叠的子部分进行compaction。
-//   // checkAndSetGC();
+//   //   //   //   //   // finished
+//   //   // checkAndSetGC();
 //   Compaction* c = versions_->PickCompaction();
 //   CompactionState* compact = new CompactionState(c);
 //   std::vector<FileMetaData*> &files = c->inputs_[1];
@@ -1832,8 +1768,7 @@ Status DBImpl::CompactionLevel1(){
 //   if(files.empty()){
 //     std::lock_guard<std::mutex> lock(mutex_l1_);
 //     std::shared_ptr<lbtree> tree2 = Table_LN_[0];
-//     // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
-//     pages2 =
+//     //     pages2 =
 //         tree2->getOverlapping(tree2->tree_meta->min_key, tree2->tree_meta->max_key, &index_start_pos2,
 //                               &output_page_count, &tree2_start, &tree2_end, kBegin, kEnd);
 //     // std::vector<std::vector<bnode*>> pages3;
@@ -1848,8 +1783,7 @@ Status DBImpl::CompactionLevel1(){
 //     // key_type input_end = DecodeDBBenchFixed64(c->largest.data()) - 1;
 //     // key_type input_start = DecodeDBBenchFixed64(files.front()->smallest.user_key().data());
 //     // key_type input_end = DecodeDBBenchFixed64(files.back()->largest.user_key().data());
-//     // 根据上一个子树的范围，在另一个B+Tree中选择一·个范围重叠的子树，同时记录下遍历的所有节点（最底层可以不用存）
-//     start_key = c->smallest.empty() ? tree2->tree_meta->min_key : DecodeDBBenchFixed64(c->smallest.data()) + 1;
+//     //     start_key = c->smallest.empty() ? tree2->tree_meta->min_key : DecodeDBBenchFixed64(c->smallest.data()) + 1;
 //     end_key = c->largest.empty() ? tree2->tree_meta->max_key : DecodeDBBenchFixed64(c->largest.data()) - 1;
 //     pages2 =
 //         tree2->getOverlapping(start_key, end_key, &index_start_pos2,
@@ -1858,8 +1792,7 @@ Status DBImpl::CompactionLevel1(){
 //     it1 = new BP_Iterator(pmAlloc_, tree2.get(), pages2[1],
 //                                        index_start_pos2, output_page_count, true);
 //     ((BP_Iterator*)it1)->setKeyStartAndEnd(c->smallest, c->largest, user_comparator());
-//     // it1在前，因为merge的时候，相同的丢弃后面的。
-//     Iterator* its[2] = {it1, it2};
+//     //     Iterator* its[2] = {it1, it2};
 //     input = NewMergingIterator(user_comparator(), its, 2);
 //   }
 
@@ -1997,9 +1930,7 @@ Status DBImpl::CompactionLevel1(){
 //   }
 //   VersionSet::LevelSummaryStorage tmp;
 //   Log(options_.info_log, "compacted to: %s", versions_->LevelSummary(&tmp));
-//   // replace指定范围的B-Tree的索引和kPage,
-//   // 自底向上（不会死锁，锁用一个释放一个）
-//   {
+//   //   //   {
 //     std::lock_guard<std::mutex> lock(mutex_l1_);
 //     std::shared_ptr<lbtree> tree2 = Table_LN_[0];
 //     // tree2->needFreeNodePages = pages2;
@@ -2052,7 +1983,6 @@ Status DBImpl::CompactionLevel1(){
 //   return Status::OK();
 }
 
-//被唤醒的时候，检测是否有L0需要compaction，有就执行compaction
 void DBImpl::MergeL1(){
   std::unique_lock<std::mutex> lk(mergeMutex_);
   Status status;
@@ -2073,10 +2003,7 @@ void DBImpl::MergeL1(){
   }
 }
 
-/*
-  检测L0的数量是否过多，过多就return
-  如果数量少，就flush，flush完成后notify CompactionL1;
-*/
+
 
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
@@ -2101,9 +2028,7 @@ void DBImpl::BackgroundCompaction() {
     return;
   }
   background_work_finished_signal_.SignalAll();
-  // std::chrono::milliseconds duration(2);  // 定义等待的时间间隔，单位为毫秒
-  // std::this_thread::sleep_for(duration);  // 线程休眠指定的时间
-  // Compaction* c;
+  // std::chrono::milliseconds duration(2);    // std::this_thread::sleep_for(duration);    // Compaction* c;
   // bool is_manual = (manual_compaction_ != nullptr);
   // InternalKey manual_end;
   // if (is_manual) {
@@ -2550,8 +2475,7 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
 
 Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
                                 std::string* value) {
-  // 0. 从L0的Table中拷贝可以读取的tree
-  mutex_l0_.lock();
+    mutex_l0_.lock();
   uint32_t firstFileNumber =
       cuckoo_filter_ == nullptr
           ? -1
@@ -2565,16 +2489,13 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
   uint64_t startTime;
   uint64_t endTime;
 
-  // 1. 读取L0中的tree
-  uint32_t fileNumber = 0;
+    uint32_t fileNumber = 0;
   bool isOnL0 = true;
   // bool isOnL0Again = false;
   if (CUCKOO_FILTER) {
-      // TODO 有bug
-      cuckoo_filter_->GetMax(key, &fileNumber);
+            cuckoo_filter_->GetMax(key, &fileNumber);
       readStats_.readCount++;
-      // hashtable中找到了，并且范围满足
-      if (fileNumber != 0 && fileNumber >= firstFileNumber) {
+            if (fileNumber != 0 && fileNumber >= firstFileNumber) {
         fileNumber -= firstFileNumber;
         if (fileNumber < trees.size()) {
 
@@ -2596,19 +2517,15 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
             readStats_.readL0Found++;
             return Status::OK();
           }
-        // 找错了，执行全部遍历
-        } else {
+                } else {
           readStats_.readWrong++;
           fileNumber = -1;
         }
-      // 没找到，执行全部遍历 ?
-      // 这里应该可以跳过L0，如果数据确实写入了L0，不存在没有找到的情况
-      } else if (fileNumber == 0) {
+                  } else if (fileNumber == 0) {
         readStats_.readNotFound++;
         // fileNumber = -1;
         isOnL0 = true;
-      // 找到，但是过期了
-      } else if (fileNumber < firstFileNumber) {
+            } else if (fileNumber < firstFileNumber) {
         readStats_.readExpire++;
         isOnL0 = false;
         // isOnL0Again = true;
@@ -2646,8 +2563,7 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
       }
   }
 
-  // 2. 读取L1中的tree
-  {
+    {
       std::lock_guard<std::mutex> lock(mutex_l1_);
       if (Table_LN_.empty() || Table_LN_[0] == nullptr) {
       return Status::NotFound("");

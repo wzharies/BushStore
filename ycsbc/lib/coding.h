@@ -7,8 +7,7 @@
 #include <string.h>
 #include <string>
 
-#define KLittleEndian true  //默认小端方式
-
+#define KLittleEndian true  
 inline void EncodeFixed32(char* buf, uint32_t value) {
   if (KLittleEndian) {
     memcpy(buf, &value, sizeof(value));

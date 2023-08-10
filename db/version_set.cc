@@ -1325,8 +1325,7 @@ Compaction* VersionSet::PickCompaction() {
   Compaction* c;
   int level = 1;
   int next_level = 2;
-  // 根据 compact_pointer找到满足条件的files
-
+  
   if(options_->has_pm){
     c = new Compaction(options_, level);
     if(current_->files_[next_level].size() == 0){

@@ -132,10 +132,7 @@ struct kPage{
     // uint64_t lock : 1;
     // uint64_t alt : 1;
     uint64_t nums;
-    uint16_t finger[LEAF_KEY_NUM]; //指纹
-    uint16_t index[LEAF_KEY_NUM]; //在vpage的第几个
-    uint32_t pointer[LEAF_KEY_NUM]; //vPage地址，4k对齐，后12位不存储
-    char keys[];
+    uint16_t finger[LEAF_KEY_NUM];     uint16_t index[LEAF_KEY_NUM];     uint32_t pointer[LEAF_KEY_NUM];     char keys[];
     key_type rawK(size_t index){
         return DecodeDBBenchFixed64(keys + index * 16);
     }
@@ -181,8 +178,7 @@ struct kPage{
             index[i - end + start] = index[i];
             setk(i - end + start, k(i));
         }
-        //删除end - start个
-        nums = nums- (end - start);
+                nums = nums- (end - start);
     }
 };
 
@@ -222,13 +218,11 @@ public:
             k(i - end + start) = k(i);
             ch(i - end + start) = ch(i);
         }
-        //删除end - start个
-        num() = num() - (end - start);
+                num() = num() - (end - start);
     }
 
     void setkandCheck(int index, const key_type& key){
-        // 某些场景中，中间状态可以相等
-        // if(index + 1 < num()){
+                // if(index + 1 < num()){
         //     assert(k(index + 1) >= key);
         // }
         // if(index - 1 >= 1){
@@ -464,12 +458,8 @@ public:
     int cur_size;
 
     key_type compaction_key;
-    key_type min_key; //L0compaction的时候需要
-    key_type max_key;
-    std::vector<void*> pages; //only on L0，记录最底层的page地址，方便merge
-    void* addr = nullptr; // ony on L0;方便直接delet
-    int kPage_count; // L0, iterator需要
-
+    key_type min_key;     key_type max_key;
+    std::vector<void*> pages;     void* addr = nullptr;     int kPage_count; 
 public:
     treeMeta(Pointer8B root, int level){
         tree_root = root;
@@ -528,20 +518,17 @@ public:
 
     ~lbtree()
     {
-        // 如果是L0的tree的bnode，可以直接全部释放
-        if (tree_meta->addr != nullptr) {
+                if (tree_meta->addr != nullptr) {
             assert(needFreeNodePages.size() == 0);
             free(tree_meta->addr);
         } else {
-            // 如果是L1是tree的bnode，需要一个个释放
-            for (int i = 1; i < needFreeNodePages.size(); i++) {
+                        for (int i = 1; i < needFreeNodePages.size(); i++) {
                 for (int j = 0; j < needFreeNodePages[i].size(); j++) {
                   free(needFreeNodePages[i][j]);
                 }
             }
         }
-        //如果是L0或者L1的kpage，需要一个个释放掉
-        for (auto& kpage : needFreeKPages) {
+                for (auto& kpage : needFreeKPages) {
             alloc->freePage(kpage, key_t);
         }
         for (auto& vpage : needFreeVPages) {

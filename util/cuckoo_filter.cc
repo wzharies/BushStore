@@ -64,8 +64,7 @@ inline uint32_t TagHash(uint32_t hv)  {
 void CuckooFilter::GenerateIndexTagHash(Slice key, size_t *index1, size_t *index2, uint32_t *tag) {
     const uint64_t hash = xxh64::hash(key.data(), key.size(), 0x20230402);
     // const uint64_t hash = MurmurHash64A(key.data(), key.size());
-    //hash值的一半给tag，另一个给index
-    *index1 = IndexHash(bucket_num_, hash >> 32);
+        *index1 = IndexHash(bucket_num_, hash >> 32);
     *tag = TagHash(hash);
     *index2 = IndexHash(bucket_num_, (uint32_t)(*index1 ^ ((*tag) * 0x5bd1e995)));
     if(rand() % 2 == 0){
@@ -90,7 +89,6 @@ CuckooFilter::~CuckooFilter(){
     free(buckets_);
 }
 
-//返回找到的一个lid
 void CuckooFilter::Get(Slice key, uint32_t* value){
     //return;
     uint32_t tag;
@@ -114,7 +112,6 @@ void CuckooFilter::Get(Slice key, uint32_t* value){
     //printf("fail get %u %u %u\n", tag);
 }
 
-//返回找到的最大的lid
 void CuckooFilter::GetMax(Slice key, uint32_t* value){
     //return;
     uint32_t tag;
@@ -134,7 +131,6 @@ void CuckooFilter::GetMax(Slice key, uint32_t* value){
     //printf("fail get %u %u %u\n", tag);
 }
 
-//优先寻找大于10的最大的和小于10的最小的。
 void CuckooFilter::Get(Slice key, uint32_t* value_max, uint32_t* value_min){
     //return;
     uint32_t tag;
@@ -168,8 +164,7 @@ void CuckooFilter::Put(Slice key, uint32_t value){
         for(int i = 0; i < ASSOC_WAY; i++){
             readLid = bucket[i].lid.load(std::memory_order_relaxed);
             if(readLid == 0 || readLid < minFileNumber){
-                // 如果没有写写冲突，就可以直接store了。
-                bucket[i].tag.store(tag,std::memory_order_relaxed);
+                                bucket[i].tag.store(tag,std::memory_order_relaxed);
                 bucket[i].lid.store(value,std::memory_order_relaxed);
                 return ;
             }

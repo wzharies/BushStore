@@ -14,9 +14,7 @@
 #include "core_workload.h"
 #include "utils.h"
 
-extern uint64_t ops_cnt[ycsbc::Operation::READMODIFYWRITE + 1] ;    //操作个数
-extern uint64_t ops_time[ycsbc::Operation::READMODIFYWRITE + 1] ;   //微秒
-
+extern uint64_t ops_cnt[ycsbc::Operation::READMODIFYWRITE + 1] ;    extern uint64_t ops_time[ycsbc::Operation::READMODIFYWRITE + 1] ;   
 namespace ycsbc {
 
 class Client {

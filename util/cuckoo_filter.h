@@ -47,8 +47,7 @@ private:
     std::mt19937 rng4;
     std::uniform_int_distribution<std::mt19937_64::result_type> dist4;
 public:
-    std::atomic<uint32_t> minFileNumber = 1; // compaction的时候会增加
-};
+    std::atomic<uint32_t> minFileNumber = 1; };
 
 
 }  // namespace leveldb

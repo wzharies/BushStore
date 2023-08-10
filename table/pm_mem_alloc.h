@@ -43,12 +43,10 @@ inline uint64_t ceilBitMapSize(uint64_t page_count, uint64_t page_size){
   return (4 + page_count / 8 + page_size - 1) / page_size * page_size;
 }
 
-// Extent内存分为
 // n * [ 4Bytes(nums) + m bit ] (PageCount) + PageSize * PageCount = total;
 inline uint64_t calPageCount(uint64_t total, uint64_t page_size){
     uint64_t page_count = (total - 64) * 8 / (page_size * 8 + 1);
-    // 求出bitmap的大小对pageSize取整的大小
-    while(true){
+        while(true){
       uint64_t ceilBitmapSize = ceilBitMapSize(page_count, page_size);
       if(ceilBitmapSize + page_size * page_count <= total){
         return page_count;
@@ -60,8 +58,7 @@ inline uint64_t calPageCount(uint64_t total, uint64_t page_size){
 
 class PMExtent {
 public:
-  //新建一个Extent
-  PMExtent(uint64_t page_count, uint64_t page_size, char* pmem_addr) :
+    PMExtent(uint64_t page_count, uint64_t page_size, char* pmem_addr) :
     pmem_addr_(pmem_addr), page_count_(page_count), page_size_(page_size), last_empty_(0) {
     used_count_ = 0;
     uint64_t ceilBitmapSize = ceilBitMapSize(page_count, page_size);
@@ -141,9 +138,7 @@ public:
   uint64_t extent_id_;
   Bitmap* bitmap_;
   size_t last_empty_;
-  char* pmem_addr_;// extent起始地址
-  char* page_start_addr_;// extent起始地址 + bitmap地址
-  std::deque<char*> free_lists_;
+  char* pmem_addr_;  char* page_start_addr_;  std::deque<char*> free_lists_;
 };
 
 class PMMemAllocator {

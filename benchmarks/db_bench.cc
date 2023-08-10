@@ -831,8 +831,7 @@ class Benchmark {
 
   void WriteRandom(ThreadState* thread) { DoWrite(thread, false); }
 
-  const int BUFFER_SIZE = 4096; // 缓冲区大小
-
+  const int BUFFER_SIZE = 4096; 
   void DoWrite(ThreadState* thread, bool seq) {
     if (num_ != FLAGS_num) {
       char msg[100];

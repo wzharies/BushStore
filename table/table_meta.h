@@ -8,11 +8,7 @@
 
 // };
 // struct KeysMetadata{
-//     InternalKey key;   //InternalKey 的key
-//     int32_t next;   //指向下一个key的index,空为-1,从0开始。
-//     uint64_t offset;  //key-value结构的offset
-//     uint64_t size;  //key-value结构的大小
-
+//     InternalKey key;   //     int32_t next;   //     uint64_t offset;  //     uint64_t size;  
 //     KeysMetadata(){
 //         next = -1;
 //         offset = 0;

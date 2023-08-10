@@ -101,8 +101,7 @@ PMTableBuilder::~PMTableBuilder(){
     //         pm_alloc_->freePage((char*)page, value_t);
     //     }
     // }
-    //TODO value_page_如果为空是否需要delete(应该已经解决)
-}
+    }
 
 void PMTableBuilder::flush_kpage(){
     // kPage* page = pm_alloc_->palloc(key_offset_);
@@ -133,18 +132,15 @@ void PMTableBuilder::flush_kpage(){
             // leftPages[i] = (bnode*)calloc(1, 256);
             leftPages[i] = (bnode*)mallocBnode();
         }
-        //key是下一层page的第一个key
-        leftPages[i]->k(leftPages[i]->num() + 1) = lastKey;
-        //value是下一层page的地址
-        leftPages[i]->ch(leftPages[i]->num() + 1) = lastAddr;
+                leftPages[i]->k(leftPages[i]->num() + 1) = lastKey;
+                leftPages[i]->ch(leftPages[i]->num() + 1) = lastAddr;
         leftPages[i]->num()++;
 
         if(leftPages[i]->num() != NON_LEAF_KEY_NUM - 2){
             break;
         }
 
-        //如果这个page装满了, 则放入vector中
-        //leftPages[i] = (bnode*)realloc(256);
+                //leftPages[i] = (bnode*)realloc(256);
         pages[i].push_back((void*)leftPages[i]);
         lastKey = leftPages[i]->kBegin();
         lastAddr = Pointer8B(leftPages[i]);
@@ -162,7 +158,6 @@ void PMTableBuilder::flush_kpage(){
 //     value_offset_ = 256;
 // }
 
-//这种为重写的情况，传入的时候保证pointer为相对地址
 void PMTableBuilder::add(const Slice& key, uint32_t pointer, uint16_t index){
     // key_count_++;
     // writeByte_ += key.size();
@@ -182,7 +177,6 @@ void PMTableBuilder::add(const Slice& key, uint32_t pointer, uint16_t index){
     }
 }
 
-//这种为重写的情况，传入的时候保证pointer为相对地址
 void PMTableBuilder::add(const Slice& key, uint16_t finger, uint32_t pointer, uint16_t index){
     // key_count_++;
     // writeByte_ += key.size();
@@ -202,7 +196,6 @@ void PMTableBuilder::add(const Slice& key, uint16_t finger, uint32_t pointer, ui
     }
 }
 
-//这种为新写入的情况，需要保证传入的pointer为相对地址
 void PMTableBuilder::add(const Slice& key, const Slice& value, uint16_t finger){
     // key_count_++;
     // writeByte_ += (key.size() + value.size());
@@ -239,14 +232,12 @@ void PMTableBuilder::add(const Slice& key, const Slice& value, uint16_t finger){
     // }
 }
 
-//flush的时候
 void PMTableBuilder::add(const Slice& key, const Slice& value){
     add(key, value, hashcode1B(DecodeDBBenchFixed64(key.data())));
 }
 
 std::tuple<std::vector<std::vector<void *>>, kPage*, kPage*> PMTableBuilder::finish(std::shared_ptr<lbtree> &tree){
-    //只要不为空就需要进行存储
-    key_type lastKey = 0;
+        key_type lastKey = 0;
     Pointer8B lastAddr = Pointer8B(0);
     if(key_buf_->nums != 0){
         // key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
@@ -276,17 +267,13 @@ std::tuple<std::vector<std::vector<void *>>, kPage*, kPage*> PMTableBuilder::fin
     for(int i = 1; i <= max_level_;i++){
         max_level_ = std::max(max_level_, i);
         if(leftPages[i] == nullptr && lastKey != 0){
-            //下一层有数据需要索引，但是这一层已经空了
-            // leftPages[i] = (bnode*)calloc(1, 256);
+                        // leftPages[i] = (bnode*)calloc(1, 256);
             leftPages[i] = (bnode*)mallocBnode();
         }
         if(lastKey != 0){
-            //不可能是满的，之前满的话是会立刻刷入的
-            assert(!leftPages[i]->full());
-            //key是下一层page的第一个key
-            leftPages[i]->k(leftPages[i]->num() + 1) = lastKey;
-            //value是下一层page的地址
-            leftPages[i]->ch(leftPages[i]->num() + 1) = lastAddr;
+                        assert(!leftPages[i]->full());
+                        leftPages[i]->k(leftPages[i]->num() + 1) = lastKey;
+                        leftPages[i]->ch(leftPages[i]->num() + 1) = lastAddr;
             leftPages[i]->num()++;
         }
 
@@ -334,8 +321,7 @@ void PMTableBuilder::setMinKey(const Slice& key){
 //         return;
 //     }
 
-//     //写入key 和 value的值到buf
-//     std::string skey;
+//     //     std::string skey;
 //     std::string key_value;
 //     PutFixed64(&skey, key.size_);
 //     skey.append(key.data_, key.size_);
@@ -347,8 +333,7 @@ void PMTableBuilder::setMinKey(const Slice& key){
 //     memcpy(key_buf_ + key_offset_ + 256, skey.c_str(), key_total_size);
 //     memcpy(value_buf_ + value_offset_ + 256, key_value.c_str(), value_total_size);
 
-//     //写入key和value的索引到buf
-//     assert(keys_num_ < 256);
+//     //     assert(keys_num_ < 256);
 //     addr = addr + keys_num;
 
 //     EncodeFixed16(key_buf_ + keys_num_ * 2, fnv1a_32(key.data_, key.size_));

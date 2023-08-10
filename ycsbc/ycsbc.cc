@@ -113,9 +113,7 @@ public:
 };
 
 ////statistics
-uint64_t ops_cnt[ycsbc::Operation::READMODIFYWRITE + 1] = {0};    //操作个数
-uint64_t ops_time[ycsbc::Operation::READMODIFYWRITE + 1] = {0};   //微秒
-////
+uint64_t ops_cnt[ycsbc::Operation::READMODIFYWRITE + 1] = {0};    uint64_t ops_time[ycsbc::Operation::READMODIFYWRITE + 1] = {0};   ////
 
 
 void UsageMessage(const char *command);
