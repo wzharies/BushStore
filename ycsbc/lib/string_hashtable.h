@@ -1,8 +1,7 @@
 //
 //  string_hashtable.h
 //
-//  Created by Jinglei Ren on 12/22/14.
-//  Copyright (c) 2014 Jinglei Ren <jinglei@ren.systems>.
+ .
 //
 
 #ifndef YCSB_C_LIB_STRING_HASHTABLE_H_

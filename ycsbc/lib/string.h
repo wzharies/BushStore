@@ -1,8 +1,7 @@
 //
 //  hash_string.h
 //
-//  Created by Jinglei Ren on 12/22/14.
-//  Copyright (c) 2014 Jinglei Ren <jinglei@ren.systems>.
+ .
 //
 
 #ifndef YCSB_C_LIB_HASH_STRING_H_

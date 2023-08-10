@@ -1,6 +1,3 @@
-//
-// Created by wujy on 18-1-21.
-//
 
 #ifndef YCSB_C_LEVELDB_DB_H
 #define YCSB_C_LEVELDB_DB_H

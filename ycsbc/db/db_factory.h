@@ -2,8 +2,8 @@
 //  db.h
 //  YCSB-C
 //
-//  Created by Jinglei Ren on 12/18/14.
-//  Copyright (c) 2014 Jinglei Ren <jinglei@ren.systems>.
+//     on 12/18/14.
+//   
 //
 
 #ifndef YCSB_C_DB_FACTORY_H_

@@ -2,8 +2,8 @@
 //  client.h
 //  YCSB-C
 //
-//  Created by Jinglei Ren on 12/10/14.
-//  Copyright (c) 2014 Jinglei Ren <jinglei@ren.systems>.
+//     on 12/10/14.
+//   
 //
 
 #ifndef YCSB_C_CLIENT_H_
