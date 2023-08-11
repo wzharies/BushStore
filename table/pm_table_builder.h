@@ -37,17 +37,18 @@ public:
   void flush_vpage(){
     assert(page_pm_->nums() + 4 == value_nums_);
     page_pm_->capacity() = value_nums_;
-    // clflush((char*)page_pm_, VPAGE_CAPACITY);
     vPage* next_page_pm_ = (vPage*)pm_alloc_->mallocPage(value_t);
     // pmem_memset_nodrain(next_page_pm_, 0, VPAGE_CAPACITY);
     page_pm_->setNext(next_page_pm_);
-    pmem_persist(page_pm_,VPAGE_CAPACITY);
-    //TODO add a finished flag
+    // pmem_persist(page_pm_,VPAGE_CAPACITY);
+    //TODO add a finished flag and Integrity hash.
     assert(page_pm_->next() == next_page_pm_);
+    pmem_persist(page_pm_, lastWrite + FLUSH_SIZE);
     page_pm_ = next_page_pm_;
     page_pm_->nums() = 0;
     page_pm_->setNext(nullptr);
     value_offset_ = VPAGE_CAPACITY;
+    lastWrite = VPAGE_CAPACITY - FLUSH_SIZE;
     value_nums_ = 4;
   }
   std::tuple<uint32_t, uint16_t> writeValue(const Slice& key, const Slice& value){
@@ -57,8 +58,12 @@ public:
       flush_vpage();
     }
     uint32_t pointer = (reinterpret_cast<uint64_t>(getRelativeAddr(page_pm_)) >> 12);
-    lastWrite += (key.size() + value.size());
     value_offset_ = page_pm_->setkv(value_nums_, value_offset_, key, value, true);
+    if(value_offset_ < lastWrite){
+      auto flush_block = (lastWrite - value_offset_) / FLUSH_SIZE;
+      pmem_persist(page_pm_ + lastWrite - flush_block * FLUSH_SIZE, FLUSH_SIZE * (flush_block + 1));
+      lastWrite -= (flush_block + 1) * FLUSH_SIZE;
+    }
     assert(value_nums_ >= 4);
     return std::make_tuple(pointer, value_nums_++);
   }
@@ -67,7 +72,7 @@ private:
   vPage* page_pm_ = nullptr;
   int value_offset_ = VPAGE_CAPACITY;
   int value_nums_ = 4;
-  int lastWrite = 0;
+  int lastWrite = VPAGE_CAPACITY - FLUSH_SIZE;
 };
 
 class vPageWrite {

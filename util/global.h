@@ -12,7 +12,8 @@
 #include <string>
 
 namespace leveldb {
-constexpr int VPAGE_CAPACITY = 256 * 1024;
+constexpr int VPAGE_CAPACITY = 512 * 1024;
+constexpr int FLUSH_SIZE = 16 * 1024;
 constexpr int MAX_FILE_NUM = 2;
 constexpr int MAX_BNODE_NUM = 150;
 constexpr int TASK_COUNT = 64;
