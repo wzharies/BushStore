@@ -43,7 +43,11 @@ public:
     // pmem_persist(page_pm_,VPAGE_CAPACITY);
     //TODO add a finished flag and Integrity hash.
     assert(page_pm_->next() == next_page_pm_);
-    pmem_persist(page_pm_, lastWrite + FLUSH_SIZE);
+    if(NEW_WAL){
+      pmem_persist(page_pm_, lastWrite + FLUSH_SIZE);
+    }else{
+      pmem_persist(page_pm_,VPAGE_CAPACITY);
+    }
     page_pm_ = next_page_pm_;
     page_pm_->nums() = 0;
     page_pm_->setNext(nullptr);
@@ -59,7 +63,7 @@ public:
     }
     uint32_t pointer = (reinterpret_cast<uint64_t>(getRelativeAddr(page_pm_)) >> 12);
     value_offset_ = page_pm_->setkv(value_nums_, value_offset_, key, value, true);
-    if(value_offset_ < lastWrite){
+    if(NEW_WAL && value_offset_ < lastWrite){
       auto flush_block = (lastWrite - value_offset_) / FLUSH_SIZE;
       pmem_persist(page_pm_ + lastWrite - flush_block * FLUSH_SIZE, FLUSH_SIZE * (flush_block + 1));
       lastWrite -= (flush_block + 1) * FLUSH_SIZE;

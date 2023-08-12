@@ -24,7 +24,7 @@ namespace ycsbc {
     }
     void LevelDB::SetOptions(leveldb::Options *options, utils::Properties &props) {
 
-        //        options->create_if_missing = true;
+        options->create_if_missing = true;
         options->compression = leveldb::kNoCompression;
 
         std::string pm_path = props.GetProperty("pmpath","/tmp/test-leveldb");
