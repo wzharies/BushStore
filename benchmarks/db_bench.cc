@@ -132,7 +132,7 @@ static bool USE_PM = true;
 static bool FLUSH_SSD = false;
 static bool Throughput = false;
 static bool DYNAMIC_TREE = true;
-static uint64_t BUCKET_NUMS = 8 * 1024 * 1024;
+static uint64_t BUCKET_NUMS = 32 * 1024 * 1024;
 
 namespace leveldb {
 

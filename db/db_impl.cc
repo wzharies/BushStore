@@ -605,7 +605,7 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
   delete iter;
   if (TIME_ANALYSIS) {
     imm_micros = env_->NowMicros() - start_micros;
-    Log(options_.info_log, "compaction at level %d, used time : %ld", level,
+    Log(options_.info_log, "flush at level %d, used time : %ld", level,
         imm_micros / 1000);
     lastCompactL0Time_ = imm_micros / 1000;
   }
@@ -620,7 +620,7 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
   if (DEBUG_PRINT) {
     double usage1 = pmAlloc_->getMemoryUsabe();
     std::cout << "flush at level 0, cost time : " << imm_micros / 1000;
-    std::cout << " memoryUsage: " << usage1 << std::endl;
+    std::cout << "ms memoryUsage: " << usage1 << " flush count: " << count << std::endl;
   }
   return Status::OK();
 }
