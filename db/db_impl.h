@@ -239,6 +239,8 @@ class DBImpl : public DB {
   std::mutex mergeMutex_;
   key_type new_start_key_ = 0;
   std::atomic<int> usage_;
+  std::atomic<uint64_t> kv_total_;
+  double valid_rate_;
   std::thread compactionThread_;
   std::atomic<int> lastCompactL0Time_ = 0;
   std::atomic<int> lastCompactL1Time_ = 0;

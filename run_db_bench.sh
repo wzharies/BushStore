@@ -17,7 +17,7 @@ ssd_path=/media/nvme/pm_test
 pm_path=/mnt/pmem0.1/pm_test
 # leveldb_path=/tmp/leveldb
 leveldb_path=$pm_path
-output_path=$db_path/output
+output_path=$db_path/output-new
 output_file=$output_path/result.out
 
 export CPLUS_INCLUDE_PATH=$db_path/include:$CPLUS_INCLUDE_PATH
@@ -40,6 +40,11 @@ use_pm=1
 flush_ssd=0
 throughput=0
 dynamic_tree=1
+WRITE20G() {
+    value_size=$((1*$KB))
+    num_kvs=$((20*$GB / $value_size))
+    bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
+}
 WRITE80G_FLUSHSSD() {
     leveldb_path=$ssd_path;
     value_size=$((4*$KB))
@@ -686,26 +691,26 @@ DATA_SIZE_ANALYSIS(){
     num_kvs=$((40*$GB / $value_size))
     RUN_DB_BENCH
 
-    # echo "---- 80GB 16GNVM----"
-    # output_file=$output_path/data_80G
-    # pm_size=$((16*$GB))
-    # write_buffer_size=$((64*$MB))
-    # num_kvs=$((80*$GB / $value_size))
-    # RUN_DB_BENCH
+    echo "---- 80GB 16GNVM----"
+    output_file=$output_path/data_80G
+    pm_size=$((16*$GB))
+    write_buffer_size=$((64*$MB))
+    num_kvs=$((80*$GB / $value_size))
+    RUN_DB_BENCH
 
-    # echo "---- 120GB 24GNVM----"
-    # output_file=$output_path/data_120G
-    # pm_size=$((24*$GB))
-    # write_buffer_size=$((64*$MB))
-    # num_kvs=$((120*$GB / $value_size))
-    # RUN_DB_BENCH
+    echo "---- 120GB 24GNVM----"
+    output_file=$output_path/data_120G
+    pm_size=$((24*$GB))
+    write_buffer_size=$((64*$MB))
+    num_kvs=$((120*$GB / $value_size))
+    RUN_DB_BENCH
 
-    # echo "---- 160GB 32GNVM----"
-    # output_file=$output_path/data_160G
-    # pm_size=$((32*$GB))
-    # write_buffer_size=$((64*$MB))
-    # num_kvs=$((160*$GB / $value_size))
-    # RUN_DB_BENCH
+    echo "---- 160GB 32GNVM----"
+    output_file=$output_path/data_160G
+    pm_size=$((32*$GB))
+    write_buffer_size=$((64*$MB))
+    num_kvs=$((160*$GB / $value_size))
+    RUN_DB_BENCH
 
     echo "---- 200GB 40GNVM----"
     output_file=$output_path/data_200G
@@ -802,30 +807,45 @@ function MALLOC_FLUSH_TEST(){
     MAKE
 }
 
+DB_BENCH_TEST_GC() {
+    echo "------------db_bench gc------------"
+    benchmarks="fillrandom,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,readrandom,stats"
+    echo "------1kb gc random write/read-----"
+    pm_size=$((380*$GB))
+    output_file=$output_path/Rnd_NVM_1KB_GC
+    WRITE20G
+    RUN_DB_BENCH
+
+    pm_size=$((180*$GB))
+    CLEAN_DB
+}
+
 MAKE
 SET_OUTPUT_PATH
 
-echo "chapter 4.1"
-DB_BENCH_TEST
-DB_BENCH_THROUGHPUT
-SMALL_VALUE_TEST
-DYNAMIC_TREE_ANALYSIS
+# echo "chapter 4.1"
+# DB_BENCH_TEST
+# DB_BENCH_THROUGHPUT
+# SMALL_VALUE_TEST
+# DYNAMIC_TREE_ANALYSIS
 
-echo "chapter 4.2"
-YCSB_TEST
-YCSB_TEST_LATENCY
+# echo "chapter 4.2"
+# YCSB_TEST
+# YCSB_TEST_LATENCY
 
-echo "chapter 4.3"
-YCSB_TEST_SSD
-THREAD_COUNT_ANALYSIS
-DB_BENCH_TEST_FLUSHSSD
-# DB_BENCH_TEST_FLUSHSSD_4K
-DATA_SIZE_ANALYSIS
+# echo "chapter 4.3"
+# YCSB_TEST_SSD
+# THREAD_COUNT_ANALYSIS
+# DB_BENCH_TEST_FLUSHSSD
+# # DB_BENCH_TEST_FLUSHSSD_4K
+# DATA_SIZE_ANALYSIS
 
-echo "chapter 4.4"
-MALLOC_FLUSH_TEST
-WRITE_TIME_ANALYSIS
-CUCKOO_FILTER_ANALYSIS
+# echo "chapter 4.4"
+# MALLOC_FLUSH_TEST
+# WRITE_TIME_ANALYSIS
+# CUCKOO_FILTER_ANALYSIS
+DB_BENCH_TEST_GC
+
 
 CLEAN_DB
 # sudo cp build/libleveldb.a /usr/local/lib/

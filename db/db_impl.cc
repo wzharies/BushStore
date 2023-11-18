@@ -476,7 +476,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
 
     if (mem == nullptr) {
       mem = new MemTable(internal_comparator_);
-      mem->setPMAllocator(pmAlloc_);
+      mem->setPMAllocator(pmAlloc_,kv_total_);
       mem->Ref();
     }
     status = WriteBatchInternal::InsertInto(&batch, mem);
@@ -523,7 +523,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
       } else {
         // mem can be nullptr if lognum exists but was empty.
         mem_ = new MemTable(internal_comparator_);
-        mem_->setPMAllocator(pmAlloc_);
+        mem_->setPMAllocator(pmAlloc_,kv_total_);
         mem_->Ref();
       }
     }
@@ -578,6 +578,7 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
       //     assert(addr->v(index).size() == 4096);
       // };
       // check(index, pointer);
+      kv_total_.fetch_add(8, std::memory_order_relaxed);
       builder.add(key, pointer, index);
       // pb->add(key, iter->value());
       if (CUCKOO_FILTER) {
@@ -863,7 +864,9 @@ bool DBImpl::isNeedGC(){
 }
 
 int DBImpl::PickCompactionPM(){
-  usage_ = pmAlloc_->getMemoryUsabe() * 100;
+  double usage_rate = pmAlloc_->getMemoryUsabe();
+  usage_ = usage_rate * 100;
+  valid_rate_ = 1.0 * kv_total_ / (usage_rate * options_.pm_size_);
   int level = -1;
   
   mutex_l0_.lock();
@@ -874,8 +877,14 @@ int DBImpl::PickCompactionPM(){
   
   if(CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
     level = 0;
+    if(valid_rate_ < gc_rate){
+      needGC = true;
+    }
   }else if(!CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
     level = 0;
+    if(valid_rate_ < gc_rate){
+      needGC = true;
+    }
   }
   if(usage_ > memory_rate * 100){
     level = 1;
@@ -1053,7 +1062,8 @@ Status DBImpl::CompactionLevel0(){
         builder.add(key, input->finger(), input->pointer(), input->index());
       }
     } else {
-            input->clrValue();
+      kv_total_.fetch_sub(input->value().size() + 8, std::memory_order_relaxed);
+      input->clrValue();
     }
     input->Next();
   }
@@ -1144,12 +1154,16 @@ Status DBImpl::CompactionLevel0(){
   if (DEBUG_PRINT) {
     double usage1 = pmAlloc_->getMemoryUsabe();
     std::cout<< "compaction at level 0, cost time : "<< imm_micros / 1000;
+    std::cout<< " needGC: "<<needGC;
     std::cout<< " memoryUsage: "<<usage1;
+    std::cout<< " memoryUsedData: "<<usage1 * options_.pm_size_ / 1024 / 1024;
+    std::cout<< "MB validData : "<<kv_total_ / 1024 / 1024;
+    std::cout<< "MB validRate : "<<valid_rate_;
     std::cout<< " mergeCount : "<<Table_L0_Merge.size();
     std::cout<< " nextMergeCount : "<<mergeCount;
     std::cout<< " curMemtableSize : "<<curMemtableSize_ / 1024 / 1024;
-    std::cout<< " ratioCount : " << ratio_L0_;
-    std::cout<< "MB, min key : " << tree->tree_meta->min_key << " max key : "<< tree->tree_meta->max_key<< std::endl;
+    std::cout<< "MB ratioCount : " << ratio_L0_;
+    std::cout<< " min key : " << tree->tree_meta->min_key << " max key : "<< tree->tree_meta->max_key<< std::endl;
   }
   // // 2. release tree
   // for(int i = 0; i < max_count; i++){
@@ -2893,7 +2907,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       imm_ = mem_;
       has_imm_.store(true, std::memory_order_release);
       mem_ = new MemTable(internal_comparator_);
-      mem_->setPMAllocator(pmAlloc_);
+      mem_->setPMAllocator(pmAlloc_,kv_total_);
       mem_->Ref();
       force = false;  // Do not force another compaction if have room
       MaybeScheduleCompaction();
@@ -3020,7 +3034,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
       impl->logfile_number_ = new_log_number;
       impl->log_ = new log::Writer(lfile);
       impl->mem_ = new MemTable(impl->internal_comparator_);
-      impl->mem_->setPMAllocator(impl->pmAlloc_);
+      impl->mem_->setPMAllocator(impl->pmAlloc_, impl->kv_total_);
       impl->mem_->Ref();
     }
   }

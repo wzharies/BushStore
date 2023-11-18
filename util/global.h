@@ -21,6 +21,7 @@ constexpr int TASK_COUNT = 64;
 constexpr int max_size = 64 * 1024;
 constexpr bool use_pm = true;
 constexpr double memory_rate = 0.85;
+constexpr double gc_rate = 0.7;
 
 // compact
 constexpr int initMemtableSize = 1 * 1024 * 1024;
@@ -34,7 +35,7 @@ constexpr int MinCompactionL0Count = 8;
 // compile
 constexpr bool CUCKOO_FILTER = true;
 constexpr bool DEBUG_CHECK = false;
-constexpr bool DEBUG_PRINT = false;
+constexpr bool DEBUG_PRINT = true;
 constexpr bool TIME_ANALYSIS = true; // must be true, dynamic change B+Tree size reley on it
 constexpr bool READ_TIME_ANALYSIS = false;
 constexpr bool WRITE_TIME_ANALYSIS = false;

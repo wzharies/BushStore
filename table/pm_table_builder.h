@@ -1,5 +1,6 @@
 #ifndef STORAGE_LEVELDB_TABLE_PM_TABLE_BUILDER_H_
 #define STORAGE_LEVELDB_TABLE_PM_TABLE_BUILDER_H_
+#include <atomic>
 #include <libpmem.h>
 #include<memory>
 #include<string>
@@ -28,6 +29,10 @@ public:
     page_pm_ = (vPage*)pm_alloc_->mallocPage(value_t);
     page_pm_->nums() = 0;
     page_pm_->setNext(nullptr);
+  }
+  
+  void kvTotal(std::atomic<uint64_t>& total){
+    kv_total_ = &total;
   }
   // void try_flush_vpage(){
   //   if(value_nums_ > 4){ 
@@ -63,6 +68,7 @@ public:
     }
     uint32_t pointer = (reinterpret_cast<uint64_t>(getRelativeAddr(page_pm_)) >> 12);
     value_offset_ = page_pm_->setkv(value_nums_, value_offset_, key, value, true);
+    kv_total_->fetch_add(value.size(), std::memory_order_relaxed);
     if(NEW_WAL && value_offset_ < lastWrite){
       auto flush_block = (lastWrite - value_offset_) / FLUSH_SIZE;
       pmem_persist(page_pm_ + lastWrite - flush_block * FLUSH_SIZE, FLUSH_SIZE * (flush_block + 1));
@@ -73,6 +79,7 @@ public:
   }
 private: 
   PMMemAllocator* pm_alloc_ = nullptr;
+  std::atomic<uint64_t>* kv_total_;
   vPage* page_pm_ = nullptr;
   int value_offset_ = VPAGE_CAPACITY;
   int value_nums_ = 4;

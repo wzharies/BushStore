@@ -43,9 +43,12 @@ class MemTable {
 
   uint64_t kvCount() {return kvCount_;}
 
-  void setPMAllocator(PMMemAllocator* allocator){
+  void setPMAllocator(PMMemAllocator* allocator, std::atomic<uint64_t>& kv_total_){
     write_.setPMAllocator(allocator);
+    write_.kvTotal(kv_total_);
   }
+
+
 
   // Returns an estimate of the number of bytes of data in use by this
   // data structure. It is safe to call when MemTable is being modified.

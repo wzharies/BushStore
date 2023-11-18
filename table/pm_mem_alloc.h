@@ -154,13 +154,13 @@ class PMMemAllocator {
   void Sync();
   double getMemoryUsabe(){
     std::lock_guard<std::mutex> lock(mutex_);
-    uint64_t total = 0;
+    uint64_t total = options_.pm_size_;
     uint64_t used = 0;
     for(int i = 0; i < pages.size();i++){
-      total += pages[i]->page_count_ * pages[i]->page_size_;
+      // total += pages[i]->page_count_ * pages[i]->page_size_;
       used += pages[i]->used_count_ * pages[i]->page_size_;
     }
-    total += (options_.pm_size_ / options_.extent_size_ - pages.size()) * options_.extent_size_;
+    // total += (options_.pm_size_ / options_.extent_size_ - pages.size()) * options_.extent_size_;
     return 1.0 * used / total;
   }
   const Options& options_;
