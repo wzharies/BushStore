@@ -15,6 +15,7 @@ namespace leveldb {
 class Random {
  private:
   uint32_t seed_;
+  uint32_t seed_init_;
 
  public:
   explicit Random(uint32_t s) : seed_(s & 0x7fffffffu) {
@@ -22,6 +23,10 @@ class Random {
     if (seed_ == 0 || seed_ == 2147483647L) {
       seed_ = 1;
     }
+    seed_init_ = seed_;
+  }
+  void Reset() {
+    seed_ = seed_init_;
   }
   uint32_t Next() {
     static const uint32_t M = 2147483647L;  // 2^31-1

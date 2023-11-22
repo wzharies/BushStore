@@ -106,6 +106,8 @@ static int FLAGS_cache_size = -1;
 // Maximum number of files to keep open at the same time (use default if == 0)
 static int FLAGS_open_files = 0;
 
+static int FLAGS_write_batch = 1;
+
 // Bloom filter bits per key.
 // Negative means use default settings.
 static int FLAGS_bloom_bits = 16;
@@ -850,11 +852,16 @@ class Benchmark {
     auto last_report_time = start_time;
     long long bytes_this_second = 0;
 
+    int first_write_nums = num_ / FLAGS_write_batch;
+
     for (int i = 0; i < num_; i += entries_per_batch_) {
+      if(i % first_write_nums == 0){
+        thread->rand.Reset();
+      }
       batch.Clear();
       bytes_this_batch = 0;
       for (int j = 0; j < entries_per_batch_; j++) {
-        const int k = seq ? i + j : (thread->rand.Next() % FLAGS_num);
+        const int k = seq ? (i % first_write_nums) + j : (thread->rand.Next() % FLAGS_num);
         // const int k = seq ? i + j : thread->rand.Uniform(FLAGS_num);
         key.Set(k);
         batch.Put(key.slice(), gen.GenerateWithKey(value_size_, k));
@@ -1204,6 +1211,8 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {
       FLAGS_open_files = n;
 
+    } else if (sscanf(argv[i], "--write_batch=%d%c", &n, &junk) == 1) {
+      FLAGS_write_batch = n;
     // used in pm
     } else if (strncmp(argv[i], "--pm_path=", 10) == 0) {
       PM_PATH = argv[i] + 10;

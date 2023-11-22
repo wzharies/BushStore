@@ -112,7 +112,7 @@ Options SanitizeOptions(const std::string& dbname,
   result.comparator = icmp;
   result.filter_policy = (src.filter_policy != nullptr) ? ipolicy : nullptr;
   ClipToRange(&result.max_open_files, 64 + kNumNonTableCacheFiles, 50000);
-  ClipToRange(&result.write_buffer_size, 64 << 10, 1 << 30);
+  ClipToRange(&result.write_buffer_size, 64UL << 10, 1UL << 36);
   ClipToRange(&result.max_file_size, 1 << 20, 1 << 30);
   ClipToRange(&result.block_size, 1 << 10, 4 << 20);
   if (result.info_log == nullptr) {
@@ -563,6 +563,9 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
   PMTableBuilder builder(pmAlloc_, node_mem, kvCount);
   iter->SeekToFirst();
   int count = 0;
+  if(!KV_SEPERATE){
+    iter->setAlloc(pmAlloc_);
+  }
   if(iter->Valid()){
     Slice key;
     builder.setMinKey(iter->key());
@@ -571,16 +574,21 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
       uint64_t curKey = DecodeDBBenchFixed64(key.data());
       //assert(curKey == count);
       count++;
-      auto [pointer, index] = iter->valuePointer();
-      // assert(index >= 4);
-      // auto check = [&](uint16_t index, uint32_t pointer){
-      //     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer) << 12);
-      //     assert(addr->v(index).size() == 4096);
-      // };
-      // check(index, pointer);
+      if(KV_SEPERATE){
+        auto [pointer, index] = iter->valuePointer();
+        // assert(index >= 4);
+        // auto check = [&](uint16_t index, uint32_t pointer){
+        //     vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer) << 12);
+        //     assert(addr->v(index).size() == 4096);
+        // };
+        // check(index, pointer);
+        builder.add(key, pointer, index);
+        // pb->add(key, iter->value());
+      }else{
+        builder.add(key, iter->value());
+        iter->ClearValue();
+      }
       kv_total_.fetch_add(8, std::memory_order_relaxed);
-      builder.add(key, pointer, index);
-      // pb->add(key, iter->value());
       if (CUCKOO_FILTER) {
         cuckoo_filter_->Put(ExtractUserKey(key), currentFileNumber);
       }
@@ -860,7 +868,7 @@ void DBImpl::checkAndSetGC(){
 }
 
 bool DBImpl::isNeedGC(){
-  return needGC;
+  return needGC || !KV_SEPERATE;
 }
 
 int DBImpl::PickCompactionPM(){
@@ -922,6 +930,8 @@ Status DBImpl::CompactionLevel0(){
           // finished
     uint64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   uint64_t start_micros = 0;
+  int64_t KeyIn = 0;
+  int64_t KeyDrop = 0;
   int level = 1;
   if (TIME_ANALYSIS){
     start_micros = env_->NowMicros();
@@ -1024,6 +1034,7 @@ Status DBImpl::CompactionLevel0(){
   while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
     Slice key = input->key();
     bool drop = false;
+    KeyIn++;
 
     if (!ParseInternalKey(key, &ikey)) {
       // Do not hide error keys
@@ -1064,6 +1075,7 @@ Status DBImpl::CompactionLevel0(){
     } else {
       kv_total_.fetch_sub(input->value().size() + 8, std::memory_order_relaxed);
       input->clrValue();
+      KeyDrop++;
     }
     input->Next();
   }
@@ -1146,6 +1158,8 @@ Status DBImpl::CompactionLevel0(){
   CompactionStats stats;
   stats.micros = imm_micros;
   stats.bytes_written += builder.getWriteByte();
+  stats.KeyIn = KeyIn;
+  stats.KeyDrop = KeyDrop;
   stats_[level].Add(stats);
   if(WRITE_TIME_ANALYSIS){
     writeStats_.writeL1Count++;
@@ -1154,7 +1168,7 @@ Status DBImpl::CompactionLevel0(){
   if (DEBUG_PRINT) {
     double usage1 = pmAlloc_->getMemoryUsabe();
     std::cout<< "compaction at level 0, cost time : "<< imm_micros / 1000;
-    std::cout<< " needGC: "<<needGC;
+    std::cout<< " needGC: "<<isNeedGC();
     std::cout<< " memoryUsage: "<<usage1;
     std::cout<< " memoryUsedData: "<<usage1 * options_.pm_size_ / 1024 / 1024;
     std::cout<< "MB validData : "<<kv_total_ / 1024 / 1024;
@@ -2942,17 +2956,19 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     char buf[200];
     std::snprintf(buf, sizeof(buf),
                   "                               Compactions\n"
-                  "Level  Files Size(MB) Time(sec) Read(MB) Write(MB)\n"
+                  "Level  Files Size(MB) Time(sec) Read(MB) Write(MB) KeyIn KeyDrop\n"
                   "--------------------------------------------------\n");
     value->append(buf);
     for (int level = 0; level < config::kNumLevels; level++) {
       int files = versions_->NumLevelFiles(level);
       if (stats_[level].micros > 0 || files > 0) {
-        std::snprintf(buf, sizeof(buf), "%3d %8d %8.0f %9.0f %8.0f %9.0f\n",
+        std::snprintf(buf, sizeof(buf), "%3d %8d %8.0f %9.0f %8.0f %9.0f %ld %ld\n",
                       level, files, versions_->NumLevelBytes(level) / 1048576.0,
                       stats_[level].micros / 1e6,
                       stats_[level].bytes_read / 1048576.0,
-                      stats_[level].bytes_written / 1048576.0);
+                      stats_[level].bytes_written / 1048576.0,
+                      stats_[level].KeyIn,
+                      stats_[level].KeyDrop);
         value->append(buf);
       }
     }

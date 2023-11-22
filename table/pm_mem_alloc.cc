@@ -9,6 +9,7 @@
 
 #include "leveldb/table_builder.h"
 #include "util/global.h"
+#include "bplustree/tree.h"
 
 namespace leveldb {
 
@@ -47,6 +48,9 @@ PMMemAllocator::PMMemAllocator(const Options& options) : options_(options), new_
 
   // vPage_slot_count_ = (256 - 16) / 4;
   vPage_size_ = VPAGE_CAPACITY;
+  if(DEBUG_PRINT){
+    printf("key page size:%lu, value page size:%lu\n", kPage_size_, vPage_size_);
+  }
       // SuitablePageSize(256 + vPage_slot_count_ * (8 + options_.value_size_));
   vPage_count_ = calPageCount(options_.extent_size_, vPage_size_);
 }
@@ -63,29 +67,29 @@ PMMemAllocator::~PMMemAllocator(){
 }
 
 uint64_t PMMemAllocator::SuitablePageSize(uint64_t page_size) {
-  if (page_size < 512) {
+  if (page_size <= 512) {
     return 512;
-  } else if (page_size < 1024) {
+  } else if (page_size <= 1024) {
     return 1024;
-  } else if (page_size < 1280) {
+  } else if (page_size <= 1280) {
     return 1280;
-  } else if (page_size < 4 * 1024){
+  } else if (page_size <= 4 * 1024){
     return 4 * 1024;
-  } else if (page_size < 8 * 1024) {
+  } else if (page_size <= 8 * 1024) {
     return 8 * 1024;
-  } else if (page_size < 16 * 1024){
+  } else if (page_size <= 16 * 1024){
     return 16 * 1024;
-  } else if (page_size < 32 * 1024) {
+  } else if (page_size <= 32 * 1024) {
     return 32 * 1024;
-  } else if (page_size < 64 * 1024){
+  } else if (page_size <= 64 * 1024){
     return 64 * 1024;
-  } else if (page_size < 128 * 1024) {
+  } else if (page_size <= 128 * 1024) {
     return 128 * 1024;
-  } else if (page_size < 256 * 1024) {
+  } else if (page_size <= 256 * 1024) {
     return 256 * 1024;
-  } else if (page_size < 512 * 1024) {
+  } else if (page_size <= 512 * 1024) {
     return 512 * 1024;
-  } else if (page_size < 1024 * 1024) {
+  } else if (page_size <= 1024 * 1024) {
     return 1024 * 1024;
   }
   std::cout<< "error : big value size" << std::endl;

@@ -10,6 +10,7 @@
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "leveldb/db.h"
+#include "table/pm_mem_alloc.h"
 #include "util/arena.h"
 #include "util/global.h"
 #include "bplustree/bptree.h"
@@ -125,6 +126,10 @@ class MemTableIterator : public Iterator {
 
   ~MemTableIterator() override = default;
 
+  void setAlloc(PMMemAllocator* alloc){
+    alloc_ = alloc;
+  }
+
   bool Valid() const override { return iter_.Valid(); }
   void Seek(const Slice& k) override { iter_.Seek(EncodeKey(&tmp_, k)); }
   void SeekToFirst() override { iter_.SeekToFirst(); }
@@ -136,6 +141,22 @@ class MemTableIterator : public Iterator {
     Slice key_slice = GetLengthPrefixedSlice(iter_.key());
     const char *p = key_slice.data() + key_slice.size();
     return std::make_tuple(DecodeFixed32(p), DecodeFixed16(p+4));
+  }
+  void ClearValue() {
+    Slice key_slice = GetLengthPrefixedSlice(iter_.key());
+    //TODO maybe bug
+    auto getValueFromAddr = [&](const char* p){
+      uint32_t pointer = DecodeFixed32(p);
+      uint16_t index = DecodeFixed16(p+4);
+      vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
+      vp->clrBitMap(index);
+      if (vp->nums() == 0) {
+        alloc_->freePage((char*)vp, value_t);
+      }
+      return ;
+    };
+
+    return getValueFromAddr(key_slice.data() + key_slice.size());
   }
   Slice value() const override {
     Slice key_slice = GetLengthPrefixedSlice(iter_.key());
@@ -154,6 +175,7 @@ class MemTableIterator : public Iterator {
 
  private:
   MemTable::Table::Iterator iter_;
+  PMMemAllocator* alloc_;
   std::string tmp_;  // For passing to EncodeKey
 };
 }  // namespace leveldb

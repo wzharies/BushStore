@@ -17,7 +17,7 @@ ssd_path=/media/nvme/pm_test
 pm_path=/mnt/pmem0.1/pm_test
 # leveldb_path=/tmp/leveldb
 leveldb_path=$pm_path
-output_path=$db_path/output-new
+output_path=$db_path/output-new1
 output_file=$output_path/result.out
 
 export CPLUS_INCLUDE_PATH=$db_path/include:$CPLUS_INCLUDE_PATH
@@ -40,6 +40,29 @@ use_pm=1
 flush_ssd=0
 throughput=0
 dynamic_tree=1
+write_batch=1
+
+WRITE200G-1K() {
+    value_size=$((1*$KB))
+    num_kvs=$((200*$GB / $value_size))
+    write_batch=5;
+    bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
+}
+
+WRITE200G-4K() {
+    value_size=$((4*$KB))
+    num_kvs=$((200*$GB / $value_size))
+    write_batch=5;
+    bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
+}
+
+WRITE200G-16K() {
+    value_size=$((16*$KB))
+    num_kvs=$((200*$GB / $value_size))
+    write_batch=5;
+    bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
+}
+
 WRITE20G() {
     value_size=$((1*$KB))
     num_kvs=$((20*$GB / $value_size))
@@ -177,6 +200,7 @@ WRITE80G_64GNVM_4K() {
 
 RUN_DB_BENCH() {
     CLEAN_DB
+    output_file=$output_file.txt
     if [ -f "$output_file" ]; then
         rm "$output_file"
         echo "delete output_file: $output_file"
@@ -197,6 +221,7 @@ RUN_DB_BENCH() {
                 --flush_ssd=$flush_ssd \
                 --throughput=$throughput \
                 --dynamic_tree=$dynamic_tree \
+                --write_batch=$write_batch \
                 "
     cmd="$APP_PREFIX $db_bench/db_bench $parameters >> $output_file"
     echo "$cmd" >> "$output_file"
@@ -809,16 +834,65 @@ function MALLOC_FLUSH_TEST(){
 
 DB_BENCH_TEST_GC() {
     echo "------------db_bench gc------------"
-    benchmarks="fillrandom,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,readrandom,stats"
-    echo "------1kb gc random write/read-----"
+    benchmarks="fillrandom,stats"
+    # benchmarks="fillrandom,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,overwrite,readrandom,stats"
     pm_size=$((380*$GB))
-    output_file=$output_path/Rnd_NVM_1KB_GC
-    WRITE20G
+
+    sed -i 's/KV_SEPERATE = false/KV_SEPERATE = true/g' "$db_path"/util/global.h
+    MAKE
+    echo "------1KB random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_1K_KV_Sep
+    WRITE200G-1K
+    RUN_DB_BENCH
+
+    echo "------4KB random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_4K_KV_Sep
+    WRITE200G-4K
+    RUN_DB_BENCH
+
+    echo "------16KB random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_16K_KV_Sep
+    WRITE200G-16K
+    RUN_DB_BENCH
+
+    sed -i 's/KV_SEPERATE = true/KV_SEPERATE = false/g' "$db_path"/util/global.h
+    MAKE
+    echo "------1KB random write/read NoKV-----"
+    output_file=$output_path/Rnd_NVM_1K_NoKV
+    WRITE200G-1K
+    RUN_DB_BENCH
+
+    echo "------4KB random write/read NoKV-----"
+    output_file=$output_path/Rnd_NVM_4K_NoKV
+    WRITE200G-4K
+    RUN_DB_BENCH
+
+    echo "------16KB random write/read NoKV-----"
+    output_file=$output_path/Rnd_NVM_16K_NoKV
+    WRITE200G-16K
     RUN_DB_BENCH
 
     pm_size=$((180*$GB))
+    sed -i 's/KV_SEPERATE = false/KV_SEPERATE = true/g' "$db_path"/util/global.h
+    MAKE
     CLEAN_DB
 }
+
+# READ_TEST_DRAM_NVM() {
+#     echo "------------db_bench gc------------"
+#     benchmarks="fillrandom,readrandom,stats"
+#     echo "------1kb 1GB Memtable DRAM-----"
+#     pm_size=$((380*$GB))
+#     output_file=$output_path/Rnd_NVM_1KB_1GB_SkipList_DRAM
+#     dynamic_tree=0
+#     write_buffer_size=$((16*$GB))
+#     value_size=$((1*$KB))
+#     num_kvs=$((1*$GB / $value_size))
+#     RUN_DB_BENCH
+
+#     pm_size=$((180*$GB))
+#     CLEAN_DB
+# }
 
 MAKE
 SET_OUTPUT_PATH
