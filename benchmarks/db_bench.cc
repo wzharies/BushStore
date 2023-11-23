@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cassert>
 #include <sys/types.h>
 
 #include <atomic>
@@ -23,6 +24,9 @@
 #include "util/testutil.h"
 #include "util/coding.h"
 #include "db/db_impl.h"
+#include "db/memtable.h"
+#include "db/version_set.h"
+#include "bplustree/bp_iterator.h"
 
 // Comma-separated list of operations to run in the specified order
 //   Actual benchmarks:
@@ -107,6 +111,8 @@ static int FLAGS_cache_size = -1;
 static int FLAGS_open_files = 0;
 
 static int FLAGS_write_batch = 1;
+
+static double FLAGS_gc_ratio = 0.5;
 
 // Bloom filter bits per key.
 // Negative means use default settings.
@@ -605,14 +611,20 @@ class Benchmark {
         method = &Benchmark::Crc32c;
       } else if (name == Slice("snappycomp")) {
         method = &Benchmark::SnappyCompress;
-      } else if (name == Slice("snappyuncomp")) {
-        method = &Benchmark::SnappyUncompress;
+      } else if (name == Slice("skiplistindex")) {
+        method = &Benchmark::ReadSequentialOnlyKey;
+      } else if (name == Slice("bptreeindex")) {
+        method = &Benchmark::ReadSequentialForBPTree;
+      } else if (name == Slice("sstableindex")) {
+        method = &Benchmark::ReadSequentialForSSTable;
       } else if (name == Slice("heapprofile")) {
         HeapProfile();
       } else if (name == Slice("stats")) {
         PrintStats("leveldb.stats");
       } else if (name == Slice("sstables")) {
         PrintStats("leveldb.sstables");
+      } else if (name == Slice("flush")) {
+        PrintStats("leveldb.flush");
       } else {
         if (!name.empty()) {  // No error message for empty name
           std::fprintf(stderr, "unknown benchmark '%s'\n",
@@ -814,6 +826,7 @@ class Benchmark {
     options.extent_size_ = EXTENT_SIZE;
     options.flush_ssd = FLUSH_SSD;
     options.dynamic_tree = DYNAMIC_TREE;
+    options.gc_ratio = FLAGS_gc_ratio;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       std::fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -907,6 +920,86 @@ class Benchmark {
       // }
       // lastKey = newkey;
       bytes += iter->key().size() + iter->value().size();
+      thread->stats.FinishedSingleOp();
+      ++i;
+    }
+    // printf("endkey %lu\n", lastKey);
+    delete iter;
+    thread->stats.AddBytes(bytes);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%d found)", i);
+    thread->stats.AddMessage(msg);
+  }
+
+  void ReadSequentialOnlyKey(ThreadState* thread) {
+    DBImpl *dbimpl = (DBImpl*)db_;
+    Iterator* iter = dbimpl->mem_->NewIterator();
+    int i = 0;
+    int64_t bytes = 0;
+    // key_type lastKey = 0;
+    for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
+      // key_type newkey = DecodeDBBenchFixed64(iter->key().data());
+      // if(newkey != lastKey + 1){
+      //   printf("%lu between %lu not fount!\n", lastKey, newkey);
+      // }
+      // lastKey = newkey;
+      bytes += iter->key().size();
+      thread->stats.FinishedSingleOp();
+      ++i;
+    }
+    // printf("endkey %lu\n", lastKey);
+    delete iter;
+    thread->stats.AddBytes(bytes);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%d found)", i);
+    thread->stats.AddMessage(msg);
+  }
+
+  void ReadSequentialForBPTree(ThreadState* thread){
+    std::cout<<"ReadSequentialForBPTree"<<std::endl;
+    DBImpl *dbimpl = (DBImpl*)db_;
+    assert(dbimpl->Table_L0_.size() == 1);
+    Iterator* iter = new BP_Iterator_Read(dbimpl->Table_L0_[0], dbimpl->pmAlloc_, true);
+    int i = 0;
+    int64_t bytes = 0;
+    // key_type lastKey = 0;
+    for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
+      // key_type newkey = DecodeDBBenchFixed64(iter->key().data());
+      // if(newkey != lastKey + 1){
+      //   printf("%lu between %lu not fount!\n", lastKey, newkey);
+      // }
+      // lastKey = newkey;
+      // bytes += iter->key().size() + iter->value().size();
+      bytes += iter->key().size();
+      thread->stats.FinishedSingleOp();
+      ++i;
+    }
+    // printf("endkey %lu\n", lastKey);
+    delete iter;
+    thread->stats.AddBytes(bytes);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%d found)", i);
+    thread->stats.AddMessage(msg);
+  }
+
+  void ReadSequentialForSSTable(ThreadState* thread){
+    DBImpl *dbimpl = (DBImpl*)db_;
+    std::vector<Iterator*> list;
+    dbimpl->versions_->current()->AddIterators(ReadOptions(), &list);
+    Iterator* iter = list[0];
+    assert(list.size() == 0);
+    // Iterator* iter = new BP_Iterator_Read(dbimpl->Table_L0_[0], dbimpl->pmAlloc_, true);
+    int i = 0;
+    int64_t bytes = 0;
+    // key_type lastKey = 0;
+    for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
+      // key_type newkey = DecodeDBBenchFixed64(iter->key().data());
+      // if(newkey != lastKey + 1){
+      //   printf("%lu between %lu not fount!\n", lastKey, newkey);
+      // }
+      // lastKey = newkey;
+      // bytes += iter->key().size() + iter->value().size();
+      bytes += iter->key().size();
       thread->stats.FinishedSingleOp();
       ++i;
     }
@@ -1211,6 +1304,8 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {
       FLAGS_open_files = n;
 
+    } else if (sscanf(argv[i], "--gc_ratio=%lf%c", &d, &junk) == 1) {
+      FLAGS_gc_ratio = d;
     } else if (sscanf(argv[i], "--write_batch=%d%c", &n, &junk) == 1) {
       FLAGS_write_batch = n;
     // used in pm

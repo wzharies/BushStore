@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <set>
 #include <string>
+#include <unistd.h>
 #include <vector>
 #include <climits>
 
@@ -689,7 +690,13 @@ void DBImpl::CompactMemTable() {
   base->Ref();
   Status s;
   // if(options_.use_pm_){
+
+  if(!TEST_FLUSH_SSD){
     s = WriteLevel0TableToPM(imm_);
+  }else{
+    std::cout<<"flush ssd"<<std::endl;
+    s = WriteLevel0Table(imm_, &edit, base);
+  }
     // std::cout << "flush imm" << std::endl;
   // }else{
   //   s = WriteLevel0Table(imm_, &edit, base);
@@ -717,6 +724,7 @@ void DBImpl::CompactMemTable() {
     RecordBackgroundError(s);
   }
 }
+
 
 void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   int max_level_with_files = 1;
@@ -871,6 +879,15 @@ bool DBImpl::isNeedGC(){
   return needGC || !KV_SEPERATE;
 }
 
+void DBImpl::Flush(){
+  // std::cout<<"flush"<<std::endl;;
+  Status s = Write(WriteOptions(), nullptr);
+  //   std::cout<<"flush1"<<std::endl;;
+  // CompactMemTable();
+  // std::cout<<"flushed"<<std::endl;;
+  sleep(5);
+}
+
 int DBImpl::PickCompactionPM(){
   double usage_rate = pmAlloc_->getMemoryUsabe();
   usage_ = usage_rate * 100;
@@ -885,12 +902,12 @@ int DBImpl::PickCompactionPM(){
   
   if(CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
     level = 0;
-    if(valid_rate_ < gc_rate){
+    if(valid_rate_ < options_.gc_ratio){
       needGC = true;
     }
   }else if(!CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
     level = 0;
-    if(valid_rate_ < gc_rate){
+    if(valid_rate_ < options_.gc_ratio){
       needGC = true;
     }
   }
@@ -928,14 +945,11 @@ int DBImpl::PickCompactionPM(){
 
 Status DBImpl::CompactionLevel0(){
           // finished
-    uint64_t imm_micros = 0;  // Micros spent doing imm_ compactions
+  uint64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   uint64_t start_micros = 0;
   int64_t KeyIn = 0;
   int64_t KeyDrop = 0;
   int level = 1;
-  if (TIME_ANALYSIS){
-    start_micros = env_->NowMicros();
-  }
   // checkAndSetGC();
     int mergeSize;
   // if(compactL0Count_.load() < Table_L0_.size()){
@@ -1023,6 +1037,9 @@ Status DBImpl::CompactionLevel0(){
   BP_Merge_Iterator* input = new BP_Merge_Iterator(its, user_comparator());
   input->SeekToFirst();
 
+  if (TIME_ANALYSIS){
+    start_micros = env_->NowMicros();
+  }
   PMTableBuilder builder(pmAlloc_);
   ParsedInternalKey ikey;
   std::string current_user_key;
@@ -1079,6 +1096,9 @@ Status DBImpl::CompactionLevel0(){
     }
     input->Next();
   }
+  if (TIME_ANALYSIS) {
+    imm_micros = env_->NowMicros() - start_micros;
+  }
   std::shared_ptr<lbtree> tree = nullptr;
     auto [pages3, firstPage, lastPage] = builder.finish(tree);
 
@@ -1132,7 +1152,7 @@ Status DBImpl::CompactionLevel0(){
   mutex_l0_.unlock();
   int mergeCount = 0;
   if (TIME_ANALYSIS) {
-    imm_micros = env_->NowMicros() - start_micros;
+    // imm_micros = env_->NowMicros() - start_micros;
     Log(options_.info_log, "compaction at level %d, used time : %ld, mergeCount : %zu", level,
         imm_micros / 1000, Table_L0_Merge.size());
     lastCompactL1Time_ = imm_micros / 1000;
@@ -2989,6 +3009,10 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
                   static_cast<unsigned long long>(total_usage));
     value->append(buf);
     return true;
+  } else if (in == "flush"){
+    mutex_.Unlock();
+    Flush();
+    mutex_.Lock();
   }
 
   return false;

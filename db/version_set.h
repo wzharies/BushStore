@@ -192,7 +192,6 @@ class VersionSet {
 
   // Return the current version.
   Version* current() const { return current_; }
-
   // Return the current manifest file number
   uint64_t ManifestFileNumber() const { return manifest_file_number_; }
 

@@ -154,6 +154,7 @@ struct LEVELDB_EXPORT Options {
   bool flush_ssd = false;
   bool has_pm = true; // if it's false. then it's leveldb
   bool dynamic_tree = true;
+  double gc_ratio=0.5;
 };
 
 // inline void* getRelativeAddr(void* addr){

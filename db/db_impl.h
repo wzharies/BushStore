@@ -145,6 +145,7 @@ class DBImpl : public DB {
   
   void checkAndSetGC();
   bool isNeedGC();
+  void Flush();
   Status CompactionLevel0();
   Status CompactionLevel1();
   Status CompactionLevel1Concurrency();
@@ -182,7 +183,10 @@ class DBImpl : public DB {
   Env* const env_;
   const InternalKeyComparator internal_comparator_;
   const InternalFilterPolicy internal_filter_policy_;
+
+public:
   const Options options_;  // options_.comparator == &internal_comparator_
+private:
   const bool owns_info_log_;
   const bool owns_cache_;
   const std::string dbname_;
@@ -198,8 +202,10 @@ class DBImpl : public DB {
   std::atomic<bool> shutting_down_;
   port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
   port::CondVar space_signal_ GUARDED_BY(mutex_);
+public:
   MemTable* mem_;
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
+private:
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
   WritableFile* logfile_;
   uint64_t logfile_number_ GUARDED_BY(mutex_);
@@ -221,6 +227,7 @@ class DBImpl : public DB {
 
   ManualCompaction* manual_compaction_ GUARDED_BY(mutex_);
 
+public:
   VersionSet* const versions_ GUARDED_BY(mutex_);
 
   // Have we encountered a background error in paranoid mode?
@@ -237,6 +244,7 @@ class DBImpl : public DB {
   std::vector<std::shared_ptr<lbtree>> Table_L0_;
   std::vector<std::shared_ptr<lbtree>> Table_LN_;
   std::vector<std::shared_ptr<lbtree>> Table_LN_TEMP_;
+private:
   std::mutex mutex_l0_;
   std::mutex mutex_l1_;
   std::condition_variable conVar_;

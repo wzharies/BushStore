@@ -21,8 +21,8 @@ constexpr int TASK_COUNT = 64;
 constexpr int max_size = 64 * 1024;
 constexpr bool use_pm = true;
 constexpr double memory_rate = 0.85;
-constexpr double gc_rate = 0.5;
-constexpr bool KV_SEPERATE = false; // must be true
+constexpr bool KV_SEPERATE = true; // must be true
+constexpr bool TEST_FLUSH_SSD = false; // must be false
 
 // compact
 constexpr int initMemtableSize = 1 * 1024 * 1024;
