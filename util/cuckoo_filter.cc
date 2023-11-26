@@ -2,6 +2,7 @@
 #include <algorithm>
 #include "util/cuckoo_filter.h"
 #include "db/dbformat.h"
+#include <cstdint>
 #include "xxh64.h"
 
 namespace leveldb{
@@ -195,6 +196,136 @@ void CuckooFilter::Put(Slice key, uint32_t value){
         }
     }
     // cuckoo filter out of max kick out!!!
+    kick_out_counter_++;
+    assert(false);
+}
+
+void CuckooFilter::PutFirst0(Slice key, uint32_t value){
+    //return;
+    uint32_t tag;
+    size_t index[2];
+    struct cuckoo_slot* bucket;
+    uint32_t empty_key = 0;
+    GenerateIndexTagHash(key, &index[0], &index[1], &tag);
+    assert(value != 0);
+    uint32_t readLid;
+    for(int k = 0;k < 2; k++){
+        bucket = buckets_[index[k]];
+        for(int i = 0; i < ASSOC_WAY; i++){
+            readLid = bucket[i].lid.load(std::memory_order_relaxed);
+            if(readLid == 0){
+                                bucket[i].tag.store(tag,std::memory_order_relaxed);
+                bucket[i].lid.store(value,std::memory_order_relaxed);
+                return ;
+            }
+        }
+    }
+    for(int k = 0;k < 2; k++){
+        bucket = buckets_[index[k]];
+        for(int i = 0; i < ASSOC_WAY; i++){
+            readLid = bucket[i].lid.load(std::memory_order_relaxed);
+            if(readLid < minFileNumber){
+                                bucket[i].tag.store(tag,std::memory_order_relaxed);
+                bucket[i].lid.store(value,std::memory_order_relaxed);
+                return ;
+            }
+        }
+    }
+    uint32_t kick_tag(tag);
+    uint32_t kick_value(value);
+    size_t kick_index = index[1];
+    for(int j = 0; j < MAX_KICK * 2; j++){
+        size_t pick = rand() % 4;
+        kick_tag = bucket[pick].tag.exchange(kick_tag,std::memory_order_relaxed);
+        kick_value = bucket[pick].lid.exchange(kick_value,std::memory_order_relaxed);
+        // if(j >= MAX_KICK){
+        //     printf("kick out %d : %d from index :%zu pick :%zu\n",kick_tag, kick_value, kick_index, pick);
+        // }
+        //printf("kick out %d : %d from index :%zu pick :%zu\n",kick_tag, kick_value, kick_index, pick);
+        kick_index = IndexHash(bucket_num_, (uint32_t)(kick_index ^ (kick_tag * 0x5bd1e995)));
+        bucket = buckets_[kick_index];
+        for(int k = 0; k < ASSOC_WAY; k++){
+            readLid = bucket[k].lid.load(std::memory_order_relaxed);
+            if(readLid == 0 || readLid < minFileNumber){
+                bucket[k].tag.store(kick_tag,std::memory_order_relaxed);
+                bucket[k].lid.store(kick_value,std::memory_order_relaxed);
+                //printf("kick %d times, put index :%zu pick: %d\n", j+1,kick_index, k);
+                //printf("put %u %u\n", tag, value);
+                return ;
+            }
+        }
+    }
+    // cuckoo filter out of max kick out!!!
+    kick_out_counter_++;
+    assert(false);
+}
+
+void CuckooFilter::PutFirst0AndMin(Slice key, uint32_t value){
+    //return;
+    uint32_t tag;
+    size_t index[2];
+    struct cuckoo_slot* bucket;
+    uint32_t empty_key = 0;
+    GenerateIndexTagHash(key, &index[0], &index[1], &tag);
+    assert(value != 0);
+    uint32_t readLid;
+    uint32_t MinLid = UINT32_MAX;
+    int mk,mi;
+    for(int k = 0;k < 2; k++){
+        bucket = buckets_[index[k]];
+        for(int i = 0; i < ASSOC_WAY; i++){
+            readLid = bucket[i].lid.load(std::memory_order_relaxed);
+            if(readLid == 0){
+                                bucket[i].tag.store(tag,std::memory_order_relaxed);
+                bucket[i].lid.store(value,std::memory_order_relaxed);
+                return ;
+            }else if(readLid < MinLid && readLid < minFileNumber){
+                MinLid = readLid;
+                mk = k;
+                mi = i;
+            }
+        }
+    }
+    if(MinLid != UINT32_MAX){
+        buckets_[index[mk]][mi].lid.store(value, std::memory_order_relaxed);
+    }
+    // for(int k = 0;k < 2; k++){
+    //     bucket = buckets_[index[k]];
+    //     for(int i = 0; i < ASSOC_WAY; i++){
+    //         readLid = bucket[i].lid.load(std::memory_order_relaxed);
+    //         if(readLid < minFileNumber){
+    //                             bucket[i].tag.store(tag,std::memory_order_relaxed);
+    //             bucket[i].lid.store(value,std::memory_order_relaxed);
+    //             return ;
+    //         }
+    //     }
+    // }
+    uint32_t kick_tag(tag);
+    uint32_t kick_value(value);
+    size_t kick_index = index[1];
+    for(int j = 0; j < MAX_KICK * 2; j++){
+        size_t pick = rand() % 4;
+        kick_tag = bucket[pick].tag.exchange(kick_tag,std::memory_order_relaxed);
+        kick_value = bucket[pick].lid.exchange(kick_value,std::memory_order_relaxed);
+        // if(j >= MAX_KICK){
+        //     printf("kick out %d : %d from index :%zu pick :%zu\n",kick_tag, kick_value, kick_index, pick);
+        // }
+        //printf("kick out %d : %d from index :%zu pick :%zu\n",kick_tag, kick_value, kick_index, pick);
+        kick_index = IndexHash(bucket_num_, (uint32_t)(kick_index ^ (kick_tag * 0x5bd1e995)));
+        bucket = buckets_[kick_index];
+        for(int k = 0; k < ASSOC_WAY; k++){
+            readLid = bucket[k].lid.load(std::memory_order_relaxed);
+            if(readLid == 0 || readLid < minFileNumber){
+                bucket[k].tag.store(kick_tag,std::memory_order_relaxed);
+                bucket[k].lid.store(kick_value,std::memory_order_relaxed);
+                //printf("kick %d times, put index :%zu pick: %d\n", j+1,kick_index, k);
+                //printf("put %u %u\n", tag, value);
+                return ;
+            }
+        }
+    }
+    // cuckoo filter out of max kick out!!!
+    kick_out_counter_++;
     assert(false);
 }
 

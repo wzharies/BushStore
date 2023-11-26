@@ -145,7 +145,7 @@ class PMMemAllocator {
  public:
   PMMemAllocator(const Options& options_);
   ~PMMemAllocator();
-  const void* PmAlloc(size_t pm_len);
+  void* PmAlloc(size_t pm_len);
   void* mallocPage(PageType type);
   std::vector<void*> mallocPage(PageType type, uint64_t count);
   void freePage(char* addr, PageType type);

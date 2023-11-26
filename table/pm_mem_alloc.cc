@@ -6,6 +6,7 @@
 
 #include <cassert>
 #include <cstdlib>
+#include <string>
 
 #include "leveldb/table_builder.h"
 #include "util/global.h"
@@ -37,7 +38,7 @@ PMMemAllocator::PMMemAllocator(const Options& options) : options_(options), new_
       // }
     }
   }else{
-    void* addr = calloc(1, options_.pm_size_);
+    void* addr = malloc(options_.pm_size_);
     base_addr = reinterpret_cast<uint64_t>(addr);
   }
 
@@ -64,6 +65,18 @@ PMMemAllocator::~PMMemAllocator(){
   for(auto& page : pages){
     delete page;
   }
+}
+
+void* PMMemAllocator::PmAlloc(size_t pm_len){
+    std::string path = options_.pm_path_ + "/allocator" + std::to_string(pm_len) + ".edb";
+    void* addr;
+    if ((addr = pmem_map_file(path.c_str(), pm_len, PMEM_FILE_CREATE, 0666,
+                          &mapped_len_, &is_pmem_)) == NULL) {
+      perror("pmem_map_file");
+      exit(1);
+    }
+    // base_addr = reinterpret_cast<uint64_t>(addr);
+    return addr;
 }
 
 uint64_t PMMemAllocator::SuitablePageSize(uint64_t page_size) {

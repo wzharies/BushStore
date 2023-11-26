@@ -7,7 +7,9 @@
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
+#include "table/pm_mem_alloc.h"
 #include "util/coding.h"
+#include "util/global.h"
 #include "bplustree/bptree.h"
 
 namespace leveldb {
@@ -36,8 +38,43 @@ int MemTable::KeyComparator::operator()(const char* aptr,
 
 Iterator* MemTable::NewIterator() { return new MemTableIterator(&table_); }
 
+void MemTable::Add2(SequenceNumber s, ValueType type, const Slice& key,
+                   const Slice& value) {
+  // Format of an entry is concatenation of:
+  //  key_size     : varint32 of internal_key.size()
+  //  key bytes    : char[internal_key.size()]
+  //  tag          : uint64((sequence << 8) | type)
+  //  value_size   : varint32 of value.size()
+  //  value bytes  : char[value.size()]
+  size_t key_size = key.size();
+  size_t val_size = value.size();
+  size_t internal_key_size = key_size + 8;
+  const size_t encoded_len = VarintLength(internal_key_size) +
+                             internal_key_size + VarintLength(val_size) +
+                             val_size;
+  // char* buf = arena_.Allocate(encoded_len);
+  char* buf;
+  if(TEST_SKIPLIST_NVM){
+    buf = (char*)allocatr_->mallocPage(key_t);
+  }else{
+    buf = arena_.Allocate(encoded_len);
+  }
+  char* p = EncodeVarint32(buf, internal_key_size);
+  std::memcpy(p, key.data(), key_size);
+  p += key_size;
+  EncodeFixed64(p, (s << 8) | type);
+  p += 8;
+  p = EncodeVarint32(p, val_size);
+  std::memcpy(p, value.data(), val_size);
+  assert(p + val_size == buf + encoded_len);
+  table_.Insert(buf);
+}
+
 void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
                    const Slice& value) {
+  if(TEST_SKIPLIST_NVM || TEST_SKIPLIST_DRAM){
+    return Add2(s, type, key, value);
+  }
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
   //  key bytes    : char[internal_key.size()]
@@ -52,7 +89,12 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
                             //  VarintLength(val_size) +
                             //  val_size;
                              6;
-  char* buf = arena_.Allocate(encoded_len);
+  char* buf;
+  if(TEST_SKIPLIST_NVM){
+    buf = (char*)allocatr_->mallocPage(key_t);
+  }else{
+    buf = arena_.Allocate(encoded_len);
+  }
   char* p = EncodeVarint32(buf, internal_key_size);
   std::memcpy(p, key.data(), key_size);
   p += key_size;
@@ -84,6 +126,9 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   kvCount_++;
 }
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s, ReadStats& stats){
+  if(TEST_SKIPLIST_NVM || TEST_SKIPLIST_DRAM){
+    return Get2(key, value, s);
+  }
   uint64_t startTime;
   uint64_t endTime;
   if(READ_TIME_ANALYSIS){
@@ -96,6 +141,42 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s, ReadStat
     stats.readMemCount ++;
   }
   return ret;
+}
+
+bool MemTable::Get2(const LookupKey& key, std::string* value, Status* s) {
+  Slice memkey = key.memtable_key();
+  Table::Iterator iter(&table_);
+  iter.Seek(memkey.data());
+  if (iter.Valid()) {
+    // entry format is:
+    //    klength  varint32
+    //    userkey  char[klength]
+    //    tag      uint64
+    //    vlength  varint32
+    //    value    char[vlength]
+    // Check that it belongs to same user key.  We do not check the
+    // sequence number since the Seek() call above should have skipped
+    // all entries with overly large sequence numbers.
+    const char* entry = iter.key();
+    uint32_t key_length;
+    const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    if (comparator_.comparator.user_comparator()->Compare(
+            Slice(key_ptr, key_length - 8), key.user_key()) == 0) {
+      // Correct user key
+      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+      switch (static_cast<ValueType>(tag & 0xff)) {
+        case kTypeValue: {
+          Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+          value->assign(v.data(), v.size());
+          return true;
+        }
+        case kTypeDeletion:
+          *s = Status::NotFound(Slice());
+          return true;
+      }
+    }
+  }
+  return false;
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {

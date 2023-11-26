@@ -21,16 +21,21 @@ constexpr int TASK_COUNT = 64;
 constexpr int max_size = 64 * 1024;
 constexpr bool use_pm = true;
 constexpr double memory_rate = 0.85;
+
 constexpr bool KV_SEPERATE = true; // must be true
 constexpr bool TEST_FLUSH_SSD = false; // must be false
+constexpr bool TEST_SKIPLIST_DRAM = false; // mujst be false;
+constexpr bool TEST_SKIPLIST_NVM = true; // mujst be false;
+constexpr bool TEST_BPTREE_NVM = false;
+constexpr bool TEST_BPTREE_DRAM = false;
 
 // compact
 constexpr int initMemtableSize = 1 * 1024 * 1024;
 constexpr int addMemtableSize = 4 * 1024 * 1024;
 constexpr int minMergeCount = 1;
 constexpr int maxMergeCount = 15;
-constexpr int L0BufferCount = 25;
-constexpr int L0BufferCountMax = 35;
+constexpr int L0BufferCount = 40;
+constexpr int L0BufferCountMax = 50;
 constexpr int MinCompactionL0Count = 8;
 
 // compile
@@ -38,7 +43,7 @@ constexpr bool CUCKOO_FILTER = true;
 constexpr bool DEBUG_CHECK = false;
 constexpr bool DEBUG_PRINT = true;
 constexpr bool TIME_ANALYSIS = true; // must be true, dynamic change B+Tree size reley on it
-constexpr bool READ_TIME_ANALYSIS = false;
+constexpr bool READ_TIME_ANALYSIS = true;
 constexpr bool WRITE_TIME_ANALYSIS = false;
 
 constexpr bool SKIPLIST_NVM = false; // no use

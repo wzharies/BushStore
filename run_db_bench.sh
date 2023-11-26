@@ -17,7 +17,7 @@ ssd_path=/media/nvme/pm_test
 pm_path=/mnt/pmem1.2/pm_test
 # leveldb_path=/tmp/leveldb
 leveldb_path=$pm_path
-output_path=$db_path/output-new3
+output_path=$db_path/output-new4
 output_file=$output_path/result.out
 
 export CPLUS_INCLUDE_PATH=$db_path/include:$CPLUS_INCLUDE_PATH
@@ -50,21 +50,21 @@ WRITE10M-8B() {
     bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
 }
 
-WRITE200G-1K() {
+WRITE400G-1K() {
     value_size=$((1*$KB))
     num_kvs=$((200*$GB / $value_size))
     write_batch=5;
     bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
 }
 
-WRITE200G-4K() {
+WRITE400G-4K() {
     value_size=$((4*$KB))
     num_kvs=$((200*$GB / $value_size))
     write_batch=5;
     bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
 }
 
-WRITE200G-16K() {
+WRITE400G-16K() {
     value_size=$((16*$KB))
     num_kvs=$((200*$GB / $value_size))
     write_batch=5;
@@ -74,22 +74,24 @@ WRITE200G-16K() {
 WRITE100M-8B() {
     value_size=$((8))
     num_kvs=$((100*$MB))
-    write_batch=5;
+    write_batch=1;
     bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
 }
 
 WRITE100M-64B() {
     value_size=$((64))
     num_kvs=$((100*$MB))
-    write_batch=5;
+    write_batch=1;
     bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
 }
 WRITE100M-256B() {
     value_size=$((256))
     num_kvs=$((100*$MB))
-    write_batch=5;
+    write_batch=1;
     bucket_nums=$((32*$MB)) # bucket_nums * 4 > nums_kvs
 }
+
+
 WRITE100M-1KB() {
     value_size=$((1*$KB))
     num_kvs=$((100*$MB))
@@ -347,11 +349,11 @@ MAKE() {
 
 DB_BENCH_TEST() {
     echo "------------db_bench------------"
-    benchmarks="fillrandom,readrandom,stats"
-    echo "------256B random write/read-----"
-    output_file=$output_path/Rnd_NVM_256B
-    WRITE80G-256B
-    RUN_DB_BENCH
+    # benchmarks="fillrandom,readrandom,stats"
+    # echo "------256B random write/read-----"
+    # output_file=$output_path/Rnd_NVM_256B
+    # WRITE80G-256B
+    # RUN_DB_BENCH
 
     echo "------1KB random write/read-----"
     output_file=$output_path/Rnd_NVM_1K
@@ -833,8 +835,8 @@ INDEX_TEST(){
 function SMALL_VALUE_TEST(){
     echo "------data size analysis-------"
     benchmarks="fillrandom,readrandom,stats"
-    num_kvs=$((100*$MB))
-
+    num_kvs=$((1024*$MB))
+    gc_ratio=0
     echo "---- key100M_8B----"
     output_file=$output_path/key100M_8B
     value_size=$((8))
@@ -848,6 +850,7 @@ function SMALL_VALUE_TEST(){
     echo "---- key100M_128B----"
     output_file=$output_path/key100M_128B
     value_size=$((128))
+    gc_ratio=0.5
     RUN_DB_BENCH
 }
 
@@ -929,146 +932,306 @@ DB_BENCH_TEST_GC() {
     sed -i 's/KV_SEPERATE = false/KV_SEPERATE = true/g' "$db_path"/util/global.h
     MAKE
 
-    # echo "------8B random write/read KV_Sep-----"
-    # output_file=$output_path/Rnd_NVM_8B_KV_Sep
-    # WRITE100M-8B
-    # RUN_DB_BENCH
-
-    # echo "------64B random write/read KV_Sep-----"
-    # output_file=$output_path/Rnd_NVM_64B_KV_Sep
-    # WRITE100M-64B
-    # RUN_DB_BENCH
-
-    # echo "------256B random write/read KV_Sep-----"
-    # output_file=$output_path/Rnd_NVM_256B_KV_Sep
-    # WRITE100M-256B
-    # RUN_DB_BENCH
-
-    echo "------1KB random write/read KV_Sep-----"
-    output_file=$output_path/Rnd_NVM_1KB_KV_Sep
-    WRITE100M-1KB
+    echo "------8B random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_8B_KV_Sep
+    WRITE100M-8B
     RUN_DB_BENCH
 
-    # echo "------4KB random write/read KV_Sep-----"
-    # output_file=$output_path/Rnd_NVM_4KB_KV_Sep
-    # WRITE100M-4KB
-    # RUN_DB_BENCH
+    echo "------64B random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_64B_KV_Sep
+    WRITE100M-64B
+    RUN_DB_BENCH
+
+    echo "------256B random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_256B_KV_Sep
+    WRITE100M-256B
+    RUN_DB_BENCH
+
+
+    echo "------1KB random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_1KB_80G__KV_Sep
+    WRITE80G
+    RUN_DB_BENCH
+
+    echo "------4KB random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_4KB_80G_KV_Sep
+    WRITE80G-4K
+    RUN_DB_BENCH
+
+    echo "------16KB random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_16KB_80G_KV_Sep
+    WRITE80G-16K
+    RUN_DB_BENCH
+
+
+    echo "------1KB random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_1KB_400G__KV_Sep
+    WRITE400G-1K
+    RUN_DB_BENCH
+
+    echo "------4KB random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_4KB_400G_KV_Sep
+    WRITE400G-4K
+    RUN_DB_BENCH
+
+    echo "------16KB random write/read KV_Sep-----"
+    output_file=$output_path/Rnd_NVM_16KB_400G_KV_Sep
+    WRITE400G-16K
+    RUN_DB_BENCH
+
+
 
     echo "------------db_bench KV SEP GC=0------------"
     gc_ratio=0
 
-    # echo "------8B random write/read KV_Sep GC=0-----"
-    # output_file=$output_path/Rnd_NVM_8B_KV_Sep_NOGC
-    # WRITE100M-8B
-    # RUN_DB_BENCH
-
-    # echo "------64B random write/read KV_Sep GC=0-----"
-    # output_file=$output_path/Rnd_NVM_64B_KV_Sep_NOGC
-    # WRITE100M-64B
-    # RUN_DB_BENCH
-
-    # echo "------256B random write/read KV_Sep GC=0-----"
-    # output_file=$output_path/Rnd_NVM_256B_KV_Sep_NOGC
-    # WRITE100M-256B
-    # RUN_DB_BENCH
-
-    echo "------1KB random write/read KV_Sep GC=0-----"
-    output_file=$output_path/Rnd_NVM_1KB_KV_Sep_NOGC
-    WRITE100M-1KB
+    echo "------8B random write/read KV_Sep_NOGC-----"
+    output_file=$output_path/Rnd_NVM_8B_KV_Sep_NOGC
+    WRITE100M-8B
     RUN_DB_BENCH
 
-    # echo "------4KB random write/read KV_Sep GC=0-----"
-    # output_file=$output_path/Rnd_NVM_4KB_KV_Sep_NOGC
-    # WRITE100M-4KB
-    # RUN_DB_BENCH
+    echo "------64B random write/read KV_Sep_NOGC-----"
+    output_file=$output_path/Rnd_NVM_64B_KV_Sep_NOGC
+    WRITE100M-64B
+    RUN_DB_BENCH
+
+    echo "------256B random write/read KV_Sep_NOGC-----"
+    output_file=$output_path/Rnd_NVM_256B_KV_Sep_NOGC
+    WRITE100M-256B
+    RUN_DB_BENCH
+
+
+    echo "------1KB random write/read KV_Sep_NOGC-----"
+    output_file=$output_path/Rnd_NVM_1KB_80G__KV_Sep_NOGC
+    WRITE80G
+    RUN_DB_BENCH
+
+    echo "------4KB random write/read KV_Sep_NOGC-----"
+    output_file=$output_path/Rnd_NVM_4KB_80G_KV_Sep_NOGC
+    WRITE80G-4K
+    RUN_DB_BENCH
+
+    echo "------16KB random write/read KV_Sep_NOGC-----"
+    output_file=$output_path/Rnd_NVM_16KB_80G_KV_Sep_NOGC
+    WRITE80G-16K
+    RUN_DB_BENCH
+
+
+    echo "------1KB random write/read KV_Sep_NOGC-----"
+    output_file=$output_path/Rnd_NVM_1KB_400G__KV_Sep_NOGC
+    WRITE400G-1K
+    RUN_DB_BENCH
+
+    echo "------4KB random write/read KV_Sep_NOGC-----"
+    output_file=$output_path/Rnd_NVM_4KB_400G_KV_Sep_NOGC
+    WRITE400G-4K
+    RUN_DB_BENCH
+
+    echo "------16KB random write/read KV_Sep_NOGC-----"
+    output_file=$output_path/Rnd_NVM_16KB_400G_KV_Sep_NOGC
+    WRITE400G-16K
+    RUN_DB_BENCH
     gc_ratio=0.5
+
+
 
     echo "------------db_bench KV NO SEP------------"
     sed -i 's/KV_SEPERATE = true/KV_SEPERATE = false/g' "$db_path"/util/global.h
     MAKE
 
-    # echo "------8B random write/read NOKV-----"
-    # output_file=$output_path/Rnd_NVM_8B_NOKV
-    # WRITE100M-8B
-    # RUN_DB_BENCH
-
-    # echo "------64B random write/read NOKV-----"
-    # output_file=$output_path/Rnd_NVM_64B_NOKV
-    # WRITE100M-64B
-    # RUN_DB_BENCH
-
-    # echo "------256B random write/read NOKV-----"
-    # output_file=$output_path/Rnd_NVM_256B_NOKV
-    # WRITE100M-256B
-    # RUN_DB_BENCH
-
-    echo "------1KB random write/read NOKV-----"
-    output_file=$output_path/Rnd_NVM_1KB_NOKV
-    WRITE100M-1KB
+    echo "------8B random write/read NO_KV_SEP-----"
+    output_file=$output_path/Rnd_NVM_8B_NO_KV_SEP
+    WRITE100M-8B
     RUN_DB_BENCH
 
-    # echo "------4KB random write/read NOKV-----"
-    # output_file=$output_path/Rnd_NVM_4KB_NOKV
-    # WRITE100M-4KB
-    # RUN_DB_BENCH
+    echo "------64B random write/read NO_KV_SEP-----"
+    output_file=$output_path/Rnd_NVM_64B_NO_KV_SEP
+    WRITE100M-64B
+    RUN_DB_BENCH
 
-    pm_size=$((180*$GB))
+    echo "------256B random write/read NO_KV_SEP-----"
+    output_file=$output_path/Rnd_NVM_256B_NO_KV_SEP
+    WRITE100M-256B
+    RUN_DB_BENCH
+
+
+    echo "------1KB random write/read NO_KV_SEP-----"
+    output_file=$output_path/Rnd_NVM_1KB_80G__NO_KV_SEP
+    WRITE80G
+    RUN_DB_BENCH
+
+    echo "------4KB random write/read NO_KV_SEP-----"
+    output_file=$output_path/Rnd_NVM_4KB_80G_NO_KV_SEP
+    WRITE80G-4K
+    RUN_DB_BENCH
+
+    echo "------16KB random write/read NO_KV_SEP-----"
+    output_file=$output_path/Rnd_NVM_16KB_80G_NO_KV_SEP
+    WRITE80G-16K
+    RUN_DB_BENCH
+
+
+    echo "------1KB random write/read NO_KV_SEP-----"
+    output_file=$output_path/Rnd_NVM_1KB_400G__NO_KV_SEP
+    WRITE400G-1K
+    RUN_DB_BENCH
+
+    echo "------4KB random write/read NO_KV_SEP-----"
+    output_file=$output_path/Rnd_NVM_4KB_400G_NO_KV_SEP
+    WRITE400G-4K
+    RUN_DB_BENCH
+
+    echo "------16KB random write/read NO_KV_SEP-----"
+    output_file=$output_path/Rnd_NVM_16KB_400G_NO_KV_SEP
+    WRITE400G-16K
+    RUN_DB_BENCH
+
     sed -i 's/KV_SEPERATE = false/KV_SEPERATE = true/g' "$db_path"/util/global.h
     MAKE
     CLEAN_DB
 }
 
-INDEX_TEST(){
+INDEX_SCAN_TEST(){
     echo "------------db_bench gc------------"
-    benchmarks="fillrandom,skiplistindex,readseq,stats"
-    echo "------1kb 10M SkipList DRAM-----"
     pm_size=$((380*$GB))
-    output_file=$output_path/Rnd_NVM_1KB_10M_SkipList_DRAM
     dynamic_tree=0
     write_buffer_size=$((1*$GB))
+
+    echo "------1kb 10M SkipList DRAM-----"
+    benchmarks="fillrandom,skiplistindex,readseq,stats"
+    output_file=$output_path/Rnd_NVM_10M_SkipList_DRAM
+    WRITE10M-8B
+    RUN_DB_BENCH
+
+    echo "------1kb 10M SkipList NVM-----"
+    sed -i 's/TEST_SKIPLIST_NVM = false/TEST_SKIPLIST_NVM = true/g' "$db_path"/util/global.h
+    MAKE
+    output_file=$output_path/Rnd_NVM_10M_SkipList_NVM
+    WRITE10M-8B
+    RUN_DB_BENCH
+    sed -i 's/TEST_SKIPLIST_NVM = true/TEST_SKIPLIST_NVM = false/g' "$db_path"/util/global.h
+    MAKE
+
+    benchmarks="fillrandom,flush,bptreeindex,readseq,stats"
+    echo "------1kb 10M B+Tree HyBrid-----"
+    output_file=$output_path/Rnd_NVM_10M_BPTree_Hybrid
     WRITE10M-8B
     RUN_DB_BENCH
 
     benchmarks="fillrandom,flush,bptreeindex,readseq,stats"
-    echo "------1kb 10M B+Tree DRAM-----"
-    pm_size=$((380*$GB))
-    output_file=$output_path/Rnd_NVM_1KB_10M_BPTree_NVM
-    dynamic_tree=0
-    write_buffer_size=$((1*$GB))
+    echo "------1kb 10M B+Tree NVM-----"
+    sed -i 's/TEST_BPTREE_NVM = false/TEST_BPTREE_NVM = true/g' "$db_path"/util/global.h
+    MAKE
+    output_file=$output_path/Rnd_NVM_10M_BPTree_NVM
     WRITE10M-8B
     RUN_DB_BENCH
+    sed -i 's/TEST_BPTREE_NVM = true/TEST_BPTREE_NVM = false/g' "$db_path"/util/global.h
+    MAKE
+
+    
+    benchmarks="fillrandom,flush,bptreeindex,readseq,stats"
+    echo "------1kb 10M B+Tree DRAM-----"
+    output_file=$output_path/Rnd_NVM_10M_BPTree_DRAM
+    use_pm=0
+    WRITE10M-8B
+    RUN_DB_BENCH
+    use_pm=1
 
     benchmarks="fillrandom,flush,sstableindex,readseq,stats"
-    echo "------1kb 10M B+Tree DRAM-----"
+    echo "------1kb 10M SSTable NVM-----"
     sed -i 's/TEST_FLUSH_SSD = false/TEST_FLUSH_SSD = true/g' "$db_path"/util/global.h
     MAKE
-    pm_size=$((380*$GB))
-    output_file=$output_path/Rnd_NVM_1KB_10M_SSTable_NVM
-    dynamic_tree=0
-    write_buffer_size=$((1*$GB))
+    output_file=$output_path/Rnd_NVM_10M_SSTable_NVM
     WRITE10M-8B
     RUN_DB_BENCH
-
     sed -i 's/TEST_FLUSH_SSD = true/TEST_FLUSH_SSD = false/g' "$db_path"/util/global.h
-    pm_size=$((180*$GB))
+    MAKE
+
+    pm_size=$((380*$GB))
+    dynamic_tree=1
     CLEAN_DB
 }
 
-# READ_TEST_DRAM_NVM() {
-#     echo "------------db_bench gc------------"
-#     benchmarks="fillrandom,readrandom,stats"
-#     echo "------1kb 1GB Memtable DRAM-----"
-#     pm_size=$((380*$GB))
-#     output_file=$output_path/Rnd_NVM_1KB_1GB_SkipList_DRAM
-#     dynamic_tree=0
-#     write_buffer_size=$((16*$GB))
-#     value_size=$((1*$KB))
-#     num_kvs=$((1*$GB / $value_size))
-#     RUN_DB_BENCH
 
-#     pm_size=$((180*$GB))
-#     CLEAN_DB
-# }
+INDEX_TEST(){
+    echo "------------db_bench gc------------"
+    pm_size=$((380*$GB))
+    dynamic_tree=0
+    write_buffer_size=$((1*$GB))
+
+    echo "------1kb 10M SkipList DRAM-----"
+    benchmarks="fillrandom,readrandom,stats"
+    sed -i 's/TEST_SKIPLIST_DRAM = false/TEST_SKIPLIST_DRAM = true/g' "$db_path"/util/global.h
+    MAKE
+    output_file=$output_path/Rnd_NVM_Random_10M_SkipList_DRAM
+    WRITE10M-8B
+    RUN_DB_BENCH
+    sed -i 's/TEST_SKIPLIST_DRAM = true/TEST_SKIPLIST_DRAM = false/g' "$db_path"/util/global.h
+    MAKE
+
+    echo "------1kb 10M SkipList NVM-----"
+    sed -i 's/TEST_SKIPLIST_NVM = false/TEST_SKIPLIST_NVM = true/g' "$db_path"/util/global.h
+    MAKE
+    output_file=$output_path/Rnd_NVM_Random_10M_SkipList_NVM
+    WRITE10M-8B
+    RUN_DB_BENCH
+    sed -i 's/TEST_SKIPLIST_NVM = true/TEST_SKIPLIST_NVM = false/g' "$db_path"/util/global.h
+    MAKE
+
+
+    echo "------1kb 10M B+Tree HyBrid-----"
+    benchmarks="fillrandom,flush,readrandom,stats"
+    output_file=$output_path/Rnd_NVM_Random_10M_BPTree_Hybrid
+    WRITE10M-8B
+    RUN_DB_BENCH
+
+    echo "------1kb 10M B+Tree NVM-----"
+    sed -i 's/TEST_BPTREE_NVM = false/TEST_BPTREE_NVM = true/g' "$db_path"/util/global.h
+    MAKE
+    output_file=$output_path/Rnd_NVM_Random_10M_BPTree_NVM
+    WRITE10M-8B
+    RUN_DB_BENCH
+    sed -i 's/TEST_BPTREE_NVM = true/TEST_BPTREE_NVM = false/g' "$db_path"/util/global.h
+    MAKE
+
+    echo "------1kb 10M B+Tree DRAM-----"
+    output_file=$output_path/Rnd_NVM_Random_10M_BPTree_DRAM
+    use_pm=0
+    WRITE10M-8B
+    RUN_DB_BENCH
+    use_pm=1
+
+
+    echo "------1kb 10M SSTable NVM-----"
+    benchmarks="fillrandom,flush,readrandom,stats"
+    sed -i 's/TEST_FLUSH_SSD = false/TEST_FLUSH_SSD = true/g' "$db_path"/util/global.h
+    MAKE
+    output_file=$output_path/Rnd_NVM_Random_10M_SSTable_NVM
+    WRITE10M-8B
+    RUN_DB_BENCH
+    sed -i 's/TEST_FLUSH_SSD = true/TEST_FLUSH_SSD = false/g' "$db_path"/util/global.h
+    MAKE
+
+    pm_size=$((380*$GB))
+    dynamic_tree=1
+    CLEAN_DB
+}
+
+DB_BENCH_ReWhileWr_TEST() {
+    echo "------------db_bench------------"
+    benchmarks="readwhilewriting,stats"
+
+    echo "------1KB random write/read-----"
+    num_thread=10
+    output_file=$output_path/Rnd_NVM_1K_RWW
+    WRITE80G
+    RUN_DB_BENCH
+
+    num_thread=1
+
+    CLEAN_DB
+}
+
+
 
 MAKE
 SET_OUTPUT_PATH
@@ -1094,9 +1257,10 @@ SET_OUTPUT_PATH
 # MALLOC_FLUSH_TEST
 # WRITE_TIME_ANALYSIS
 # CUCKOO_FILTER_ANALYSIS
+INDEX_SCAN_TEST
 INDEX_TEST
 # DB_BENCH_TEST_GC
-
+# DB_BENCH_ReWhileWr_TEST
 
 CLEAN_DB
 # sudo cp build/libleveldb.a /usr/local/lib/

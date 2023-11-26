@@ -984,11 +984,11 @@ class Benchmark {
 
   void ReadSequentialForSSTable(ThreadState* thread){
     DBImpl *dbimpl = (DBImpl*)db_;
-    std::vector<Iterator*> list;
-    dbimpl->versions_->current()->AddIterators(ReadOptions(), &list);
-    Iterator* iter = list[0];
-    assert(list.size() == 0);
-    // Iterator* iter = new BP_Iterator_Read(dbimpl->Table_L0_[0], dbimpl->pmAlloc_, true);
+    // std::vector<Iterator*> list;
+    // dbimpl->versions_->current()->AddIterators(ReadOptions(), &list);
+    // Iterator* iter = list[0];
+    // assert(list.size() == 1);
+    Iterator* iter = db_->NewIterator(ReadOptions());
     int i = 0;
     int64_t bytes = 0;
     // key_type lastKey = 0;
@@ -998,7 +998,6 @@ class Benchmark {
       //   printf("%lu between %lu not fount!\n", lastKey, newkey);
       // }
       // lastKey = newkey;
-      // bytes += iter->key().size() + iter->value().size();
       bytes += iter->key().size();
       thread->stats.FinishedSingleOp();
       ++i;

@@ -560,13 +560,21 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
   // TODO
   uint64_t kvCount = mem->kvCount();
   int page_count = ((kvCount / LEAF_KEY_NUM) + 1) / (NON_LEAF_KEY_NUM - 4) + 7;
-  char *node_mem = (char*)calloc(1, 256 * page_count);
+  char* node_mem;
+  printf("start\n");
+  if(TEST_BPTREE_NVM){
+    node_mem = (char*)pmAlloc_->PmAlloc(256 * page_count);
+  }else{
+    node_mem = (char*)calloc(1, 256 * page_count);
+  }
+  printf("end\n");
   PMTableBuilder builder(pmAlloc_, node_mem, kvCount);
   iter->SeekToFirst();
   int count = 0;
   if(!KV_SEPERATE){
     iter->setAlloc(pmAlloc_);
   }
+  bool filter_valid = cuckoo_filter_->isValid();
   if(iter->Valid()){
     Slice key;
     builder.setMinKey(iter->key());
@@ -590,8 +598,9 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
         iter->ClearValue();
       }
       kv_total_.fetch_add(8, std::memory_order_relaxed);
-      if (CUCKOO_FILTER) {
-        cuckoo_filter_->Put(ExtractUserKey(key), currentFileNumber);
+      if (CUCKOO_FILTER && filter_valid) {
+        // cuckoo_filter_->Put(ExtractUserKey(key), currentFileNumber);
+        cuckoo_filter_->PutFirst0AndMin(ExtractUserKey(key), currentFileNumber);
       }
       //cuckoo_filter->Put(ExtractUserKey(key), meta->number);
     }
@@ -900,17 +909,18 @@ int DBImpl::PickCompactionPM(){
 
   
   
-  if(CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
-    level = 0;
-    if(valid_rate_ < options_.gc_ratio){
-      needGC = true;
-    }
-  }else if(!CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
+  if(l0_num_ >= MinCompactionL0Count){
     level = 0;
     if(valid_rate_ < options_.gc_ratio){
       needGC = true;
     }
   }
+  // else if(!CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
+  //   level = 0;
+  //   if(valid_rate_ < options_.gc_ratio){
+  //     needGC = true;
+  //   }
+  // }
   if(usage_ > memory_rate * 100){
     level = 1;
     flushSSD = true;
@@ -1170,8 +1180,8 @@ Status DBImpl::CompactionLevel0(){
         if(curMemtableSize_ > maxMemtableSize_){
           curMemtableSize_ = maxMemtableSize_;
         }
-      } else if (mergeCount >maxMergeCount && curMemtableSize_ >= maxMemtableSize_) {
-        ratio_L0_ = curMemtableSize_ / maxMemtableSize_;
+      } else if (mergeCount >L0BufferCount && curMemtableSize_ >= maxMemtableSize_) {
+        ratio_L0_ = std::max(1, mergeCount / mergeSize / 6);
       }
     }
   }
@@ -2066,13 +2076,16 @@ void DBImpl::BackgroundCompaction() {
   if(usage_ < 95){
     space_signal_.SignalAll();
   }
-
+  bool right = false;
   if (imm_ != nullptr && l0_num_ < L0BufferCount * ratio_L0_ && !needGC && !flushSSD && usage_ <= memory_rate * 100) {
     CompactMemTable();
     conVar_.notify_one();
     //CompactMemTableToPM();
     background_work_finished_signal_.SignalAll();
     return;
+  }else{
+    right = true;
+    // std::cout<<"not flush"<<std::endl;
   }
   background_work_finished_signal_.SignalAll();
   // std::chrono::milliseconds duration(2);    // std::this_thread::sleep_for(duration);    // Compaction* c;
@@ -2539,7 +2552,7 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
     uint32_t fileNumber = 0;
   bool isOnL0 = true;
   // bool isOnL0Again = false;
-  if (CUCKOO_FILTER) {
+  if (CUCKOO_FILTER && cuckoo_filter_->isValid()) {
             cuckoo_filter_->GetMax(key, &fileNumber);
       readStats_.readCount++;
             if (fileNumber != 0 && fileNumber >= firstFileNumber) {
@@ -2894,7 +2907,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
-      env_->SleepForMicroseconds(50);
+      // env_->SleepForMicroseconds(50);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
     } else if (allow_delay && l0_num_ >=
@@ -2981,6 +2994,11 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     value->append(buf);
     for (int level = 0; level < config::kNumLevels; level++) {
       int files = versions_->NumLevelFiles(level);
+      if(level == 0){
+        files = Table_L0_.size();
+      }else if(level == 1){
+        files = Table_LN_.size();
+      }
       if (stats_[level].micros > 0 || files > 0) {
         std::snprintf(buf, sizeof(buf), "%3d %8d %8.0f %9.0f %8.0f %9.0f %ld %ld\n",
                       level, files, versions_->NumLevelBytes(level) / 1048576.0,

@@ -45,6 +45,7 @@ class MemTable {
   uint64_t kvCount() {return kvCount_;}
 
   void setPMAllocator(PMMemAllocator* allocator, std::atomic<uint64_t>& kv_total_){
+    allocatr_ = allocator;
     write_.setPMAllocator(allocator);
     write_.kvTotal(kv_total_);
   }
@@ -68,12 +69,14 @@ class MemTable {
   // Typically value will be empty if type==kTypeDeletion.
   void Add(SequenceNumber seq, ValueType type, const Slice& key,
            const Slice& value);
-
+  void Add2(SequenceNumber seq, ValueType type, const Slice& key,
+           const Slice& value);
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
   // in *status and return true.
   // Else, return false.
   bool Get(const LookupKey& key, std::string* value, Status* s);
+  bool Get2(const LookupKey& key, std::string* value, Status* s);
 
   bool Get(const LookupKey& key, std::string* value, Status* s, ReadStats& stats);
  private:
@@ -90,6 +93,7 @@ class MemTable {
 
   ~MemTable();  // Private since only Unref() should be used to delete it
 
+  PMMemAllocator* allocatr_ = nullptr;
   KeyComparator comparator_;
   vPageWriteDirect write_;
   int refs_;
@@ -159,16 +163,21 @@ class MemTableIterator : public Iterator {
     return getValueFromAddr(key_slice.data() + key_slice.size());
   }
   Slice value() const override {
-    Slice key_slice = GetLengthPrefixedSlice(iter_.key());
-    //TODO maybe bug
-    auto getValueFromAddr = [](const char* p){
-      uint32_t pointer = DecodeFixed32(p);
-      uint16_t index = DecodeFixed16(p+4);
-      vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
-      return vp->v(index);
-    };
+    if(TEST_SKIPLIST_NVM || TEST_SKIPLIST_DRAM){
+      Slice key_slice = GetLengthPrefixedSlice(iter_.key());
+      return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
+    }else{
+      Slice key_slice = GetLengthPrefixedSlice(iter_.key());
+      //TODO maybe bug
+      auto getValueFromAddr = [](const char* p){
+        uint32_t pointer = DecodeFixed32(p);
+        uint16_t index = DecodeFixed16(p+4);
+        vPage *vp = (vPage* )(getAbsoluteAddr(((uint64_t)pointer) << 12));
+        return vp->v(index);
+      };
 
-    return getValueFromAddr(key_slice.data() + key_slice.size());
+      return getValueFromAddr(key_slice.data() + key_slice.size());
+    }
   }
 
   Status status() const override { return Status::OK(); }

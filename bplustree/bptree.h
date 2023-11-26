@@ -25,6 +25,7 @@
 #include "tree.h"
 #include "table/pm_mem_alloc.h"
 #include "util/coding.h"
+#include "util/global.h"
 #include "leveldb/slice.h"
 #include "leveldb/iterator.h"
 #include "bplustree/persist.h"
@@ -483,17 +484,19 @@ public:
 
     ~lbtree()
     {
-                if (tree_meta->addr != nullptr) {
+        if (tree_meta->addr != nullptr) {
             assert(needFreeNodePages.size() == 0);
-            free(tree_meta->addr);
+            if(!TEST_BPTREE_NVM){
+                free(tree_meta->addr);
+            }
         } else {
-                        for (int i = 1; i < needFreeNodePages.size(); i++) {
+            for (int i = 1; i < needFreeNodePages.size(); i++) {
                 for (int j = 0; j < needFreeNodePages[i].size(); j++) {
                   free(needFreeNodePages[i][j]);
                 }
             }
         }
-                for (auto& kpage : needFreeKPages) {
+        for (auto& kpage : needFreeKPages) {
             alloc->freePage(kpage, key_t);
         }
         for (auto& vpage : needFreeVPages) {
