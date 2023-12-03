@@ -123,17 +123,19 @@ public:
     value_offset_ = VPAGE_CAPACITY;
     value_nums_ = 4;
   }
-  std::tuple<uint32_t, uint16_t> writeValue(const Slice& key, const Slice& value){
+  std::tuple<uint32_t, uint16_t, bool> writeValue(const Slice& key, const Slice& value){
     assert(page_pm_ != nullptr);
     assert(key.size() == 16);
+    bool flushed = false;
     if(page_buffer_->isFull(value_offset_ - (key.size() + 4 + value.size()), value_nums_)){
       flush_vpage();
+      flushed = true;
       page_pm_ = (char*)pm_alloc_->mallocPage(value_t);
     }
     uint32_t pointer = (reinterpret_cast<uint64_t>(getRelativeAddr(page_pm_)) >> 12);
     value_offset_ = page_buffer_->setkv(value_nums_, value_offset_, key, value, false);
     assert(value_nums_ >= 4);
-    return std::make_tuple(pointer, value_nums_++);
+    return std::make_tuple(pointer, value_nums_++, flushed);
   }
   uint64_t getWriteByte() { return writeByte_; }
 private: 
@@ -149,10 +151,10 @@ class PMTableBuilder{
 public:
     PMTableBuilder(PMMemAllocator* pm_alloc, char * node_mem = nullptr, uint64_t kvNums = 0);
     ~PMTableBuilder();
-    void add(const Slice& key, uint16_t finger, uint32_t pointer, uint16_t index);
-    void add(const Slice& key, uint32_t pointer, uint16_t index);
-    void add(const Slice& key, const Slice& value, uint16_t finger);
-    void add(const Slice& key, const Slice& value);
+    bool add(const Slice& key, uint16_t finger, uint32_t pointer, uint16_t index);
+    bool add(const Slice& key, uint32_t pointer, uint16_t index);
+    bool add(const Slice& key, const Slice& value, uint16_t finger);
+    bool add(const Slice& key, const Slice& value);
     void setMaxKey(const Slice& key);
     void setMinKey(const Slice& key);
     std::tuple<std::vector<std::vector<void *>>, kPage*, kPage*> finish(std::shared_ptr<lbtree> &tree);

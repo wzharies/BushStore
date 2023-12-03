@@ -983,11 +983,6 @@ class Benchmark {
   }
 
   void ReadSequentialForSSTable(ThreadState* thread){
-    DBImpl *dbimpl = (DBImpl*)db_;
-    // std::vector<Iterator*> list;
-    // dbimpl->versions_->current()->AddIterators(ReadOptions(), &list);
-    // Iterator* iter = list[0];
-    // assert(list.size() == 1);
     Iterator* iter = db_->NewIterator(ReadOptions());
     int i = 0;
     int64_t bytes = 0;

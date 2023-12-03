@@ -18,6 +18,7 @@
 #include "leveldb/env.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
+#include "util/bloomfilter.h"
 #include "util/cuckoo_filter.h"
 #include "bplustree/bptree.h"
 #include "table/pm_mem_alloc.h"
@@ -244,6 +245,7 @@ public:
   std::vector<std::shared_ptr<lbtree>> Table_L0_;
   std::vector<std::shared_ptr<lbtree>> Table_LN_;
   std::vector<std::shared_ptr<lbtree>> Table_LN_TEMP_;
+  std::vector<std::shared_ptr<BloomFilterPolicy>> bloom_filters_;
 private:
   std::mutex mutex_l0_;
   std::mutex mutex_l1_;
@@ -261,6 +263,8 @@ private:
   size_t maxMemtableSize_;
   std::atomic<size_t> l0_num_ = 0;
   int ratio_L0_ = 1;
+  int stop_gc_count_ = 0;
+  uint64_t gc_start_key_ = 0;
 public:
   ReadStats readStats_;
   WriteStats writeStats_;

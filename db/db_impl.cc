@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cmath>
 #include <iostream>
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <set>
 #include <string>
 #include <unistd.h>
@@ -34,6 +36,7 @@
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
 #include "table/pm_table_builder.h"
+#include "util/bloomfilter.h"
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -561,13 +564,18 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
   uint64_t kvCount = mem->kvCount();
   int page_count = ((kvCount / LEAF_KEY_NUM) + 1) / (NON_LEAF_KEY_NUM - 4) + 7;
   char* node_mem;
-  printf("start\n");
   if(TEST_BPTREE_NVM){
     node_mem = (char*)pmAlloc_->PmAlloc(256 * page_count);
   }else{
     node_mem = (char*)calloc(1, 256 * page_count);
   }
-  printf("end\n");
+
+  std::shared_ptr<BloomFilterPolicy> filter;
+  if(BLOOM_FILTER){
+    filter = std::make_shared<BloomFilterPolicy>();
+    filter->CreateFilter(kvCount);
+  };
+
   PMTableBuilder builder(pmAlloc_, node_mem, kvCount);
   iter->SeekToFirst();
   int count = 0;
@@ -602,6 +610,9 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
         // cuckoo_filter_->Put(ExtractUserKey(key), currentFileNumber);
         cuckoo_filter_->PutFirst0AndMin(ExtractUserKey(key), currentFileNumber);
       }
+      if (BLOOM_FILTER){
+        filter->insertKey(key.ToString(8));
+      }
       //cuckoo_filter->Put(ExtractUserKey(key), meta->number);
     }
     assert(builder.cur_node_index_ <= page_count);
@@ -613,6 +624,9 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
     }
     mutex_l0_.lock();
     Table_L0_.push_back(tree);
+    if(BLOOM_FILTER){
+      bloom_filters_.push_back(filter);
+    }
     mutex_l0_.unlock();
 
     if(DEBUG_CHECK){
@@ -703,7 +717,7 @@ void DBImpl::CompactMemTable() {
   if(!TEST_FLUSH_SSD){
     s = WriteLevel0TableToPM(imm_);
   }else{
-    std::cout<<"flush ssd"<<std::endl;
+    // std::cout<<"flush ssd"<<std::endl;
     s = WriteLevel0Table(imm_, &edit, base);
   }
     // std::cout << "flush imm" << std::endl;
@@ -912,7 +926,12 @@ int DBImpl::PickCompactionPM(){
   if(l0_num_ >= MinCompactionL0Count){
     level = 0;
     if(valid_rate_ < options_.gc_ratio){
-      needGC = true;
+        needGC = true;
+    }
+    if(stop_gc_count_ > 0){
+      stop_gc_count_--;
+        // printf("stop_gc_count_:%d\n", stop_gc_count_);
+      needGC = false;
     }
   }
   // else if(!CUCKOO_FILTER && l0_num_ >= MinCompactionL0Count){
@@ -967,6 +986,9 @@ Status DBImpl::CompactionLevel0(){
   // }else{
     mergeSize = Table_L0_.size();
   // }
+  if(TEST_CUCKOOFILTER){
+    mergeSize -= 7;
+  }
   mutex_l0_.lock();
   std::vector<std::shared_ptr<lbtree>> Table_L0_Merge(Table_L0_.begin(), Table_L0_.begin() + mergeSize);
   mutex_l0_.unlock();
@@ -1051,6 +1073,8 @@ Status DBImpl::CompactionLevel0(){
     start_micros = env_->NowMicros();
   }
   PMTableBuilder builder(pmAlloc_);
+  int new_rewrite_gc_page_count = MAX_GC_VPAGE;
+  uint64_t max_rewrite_key = 0;
   ParsedInternalKey ikey;
   std::string current_user_key;
   bool has_current_user_key = false;
@@ -1085,12 +1109,22 @@ Status DBImpl::CompactionLevel0(){
       // }
       last_sequence_for_key = ikey.sequence;
     }
+
+    if (TEST_CUCKOO_DELETE) {
+        // cuckoo_filter_->Put(ExtractUserKey(key), currentFileNumber);
+        cuckoo_filter_->Delete(ExtractUserKey(key));
+    }
     if (!drop) {
-      if (isNeedGC()) {
+      key_type key64 = DecodeDBBenchFixed64(key.data());
+      if (!KV_SEPERATE || (needGC && key64 >= gc_start_key_ && new_rewrite_gc_page_count > 0)) {
+          max_rewrite_key = std::max(key64, max_rewrite_key);
+
       // if (input->getCapacityUsage() < usage_ / 2) {
       // if (isNeedGC() || input->getCapacityUsage() < usage_ / 2) {
-                        builder.add(key, input->value(), input->finger());
-                input->clrValue();
+        if(builder.add(key, input->value(), input->finger())){
+          new_rewrite_gc_page_count--;
+        }
+        input->clrValue();
       } else {
                 // auto check = [&](uint16_t index, uint32_t pointer, Slice& key){
         //   vPage* addr = (vPage*)getAbsoluteAddr(((uint64_t)pointer) << 12);
@@ -1105,6 +1139,13 @@ Status DBImpl::CompactionLevel0(){
       KeyDrop++;
     }
     input->Next();
+  }
+  if(KV_SEPERATE && needGC){
+    if(new_rewrite_gc_page_count > 0){
+      gc_start_key_ = 0;
+    }else{
+      gc_start_key_ = max_rewrite_key + 1;
+    }
   }
   if (TIME_ANALYSIS) {
     imm_micros = env_->NowMicros() - start_micros;
@@ -1159,6 +1200,9 @@ Status DBImpl::CompactionLevel0(){
     cuckoo_filter_->minFileNumber += Table_L0_Merge.size();
   }
   Table_L0_.erase(Table_L0_.begin(), Table_L0_.begin() + Table_L0_Merge.size());
+  if(BLOOM_FILTER){
+    bloom_filters_.erase(bloom_filters_.begin(), bloom_filters_.begin() + Table_L0_Merge.size());
+  }
   mutex_l0_.unlock();
   int mergeCount = 0;
   if (TIME_ANALYSIS) {
@@ -1195,10 +1239,13 @@ Status DBImpl::CompactionLevel0(){
     writeStats_.writeL1Count++;
     writeStats_.writeL1Time+=imm_micros;
   }
+  double usage1 = pmAlloc_->getMemoryUsabe();
+  usage_ = usage1 * 100;
+  double new_valid_rate_ = 1.0 * kv_total_ / (usage1 * options_.pm_size_);
   if (DEBUG_PRINT) {
-    double usage1 = pmAlloc_->getMemoryUsabe();
     std::cout<< "compaction at level 0, cost time : "<< imm_micros / 1000;
-    std::cout<< " needGC: "<<isNeedGC();
+    std::cout<< " gc_start_key: "<< gc_start_key_;
+    std::cout<< " rewrite vpage: "<< MAX_GC_VPAGE - new_rewrite_gc_page_count;
     std::cout<< " memoryUsage: "<<usage1;
     std::cout<< " memoryUsedData: "<<usage1 * options_.pm_size_ / 1024 / 1024;
     std::cout<< "MB validData : "<<kv_total_ / 1024 / 1024;
@@ -1208,6 +1255,13 @@ Status DBImpl::CompactionLevel0(){
     std::cout<< " curMemtableSize : "<<curMemtableSize_ / 1024 / 1024;
     std::cout<< "MB ratioCount : " << ratio_L0_;
     std::cout<< " min key : " << tree->tree_meta->min_key << " max key : "<< tree->tree_meta->max_key<< std::endl;
+  }
+  
+  if(needGC && kv_total_ < STOP_THRESHOLD && (new_valid_rate_ - valid_rate_ < STOP_GC_RATE)){
+    stop_gc_count_ = STOP_GC_COUNT;
+    if(DEBUG_PRINT){
+      printf("stop gc before valid_rate %lf, new valid rate %lf\n", valid_rate_, new_valid_rate_);
+    }
   }
   // // 2. release tree
   // for(int i = 0; i < max_count; i++){
@@ -2541,6 +2595,10 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
           ? -1
           : cuckoo_filter_->minFileNumber.load(std::memory_order_relaxed);
   std::vector<std::shared_ptr<lbtree>> trees = Table_L0_;
+  std::vector<std::shared_ptr<BloomFilterPolicy>> bloom_filters;
+  if(BLOOM_FILTER){
+    bloom_filters = bloom_filters_;
+  }
   mutex_l0_.unlock();
   int pos;
   char* value_addr;
@@ -2548,12 +2606,25 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
   key_type rawKey = DecodeDBBenchFixed64(key.data());
   uint64_t startTime;
   uint64_t endTime;
+  uint64_t startTime1;
+  uint64_t endTime1;
+  uint64_t startTime2;
+  uint64_t endTime2;
 
-    uint32_t fileNumber = 0;
+  uint32_t fileNumber = 0;
   bool isOnL0 = true;
   // bool isOnL0Again = false;
   if (CUCKOO_FILTER && cuckoo_filter_->isValid()) {
-            cuckoo_filter_->GetMax(key, &fileNumber);
+
+      if (READ_TIME_ANALYSIS) {
+        startTime1 = env_->NowMicros();
+      }
+      cuckoo_filter_->GetMax(key, &fileNumber);
+      if (READ_TIME_ANALYSIS) {
+        endTime1 = env_->NowMicros();
+        readStats_.readCuckooTime += (endTime1 - startTime1);
+        readStats_.readCuckooCount++;
+      }
       readStats_.readCount++;
             if (fileNumber != 0 && fileNumber >= firstFileNumber) {
         fileNumber -= firstFileNumber;
@@ -2595,6 +2666,10 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
       //   std::endl;
       // }
   }
+
+  if (READ_TIME_ANALYSIS) {
+    startTime = env_->NowMicros();
+  }
   if (isOnL0) {
       for (int i = 0; i < trees.size(); i++) {
         if (CUCKOO_FILTER) {
@@ -2602,14 +2677,27 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
             continue;
           }
         }
-
-        if (READ_TIME_ANALYSIS) {
-          startTime = env_->NowMicros();
+        if (BLOOM_FILTER) {
+          if (READ_TIME_ANALYSIS) {
+            startTime2 = env_->NowMicros();
+          }
+          bool result = bloom_filters[i]->KeyMayMatch(key.ToString(8));
+          if (READ_TIME_ANALYSIS) {
+            endTime2 = env_->NowMicros();
+            readStats_.readBloomTime += (endTime2 - startTime2);
+            readStats_.readBloomCount++;
+          }
+          if(!result){
+            readStats_.bloomfilter++;
+            continue;
+          }else{
+            readStats_.bloomNofilter++;
+          }
         }
         value_addr = (char*)trees[i]->lookup(rawKey, &pos);
         if (READ_TIME_ANALYSIS) {
-          endTime = env_->NowMicros();
-          readStats_.readL0Time += (endTime - startTime);
+          // endTime = env_->NowMicros();
+          // readStats_.readL0Time += (endTime - startTime);
           readStats_.readL0Count++;
         }
 
@@ -2618,11 +2706,16 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
           // assert(value_length = 1000);
           *value = std::string(value_addr + 4 + VPAGE_KEY_SIZE, value_length);
           readStats_.readL0Found++;
+          endTime = env_->NowMicros();
+          readStats_.readL0Time += (endTime - startTime);
           return Status::OK();
         }
       }
   }
-
+  if (READ_TIME_ANALYSIS) {
+    endTime = env_->NowMicros();
+    readStats_.readL0Time += (endTime - startTime);\
+  }
     {
       std::lock_guard<std::mutex> lock(mutex_l1_);
       if (Table_LN_.empty() || Table_LN_[0] == nullptr) {

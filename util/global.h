@@ -23,11 +23,19 @@ constexpr bool use_pm = true;
 constexpr double memory_rate = 0.85;
 
 constexpr bool KV_SEPERATE = true; // must be true
+constexpr int STOP_GC_COUNT = 5;
+constexpr double STOP_GC_RATE = 0.05;
+constexpr uint64_t STOP_THRESHOLD = 10ULL * 1024 * 1024 * 1024;
+constexpr int MAX_GC_VPAGE = 1024 * 10;// 5G / 512K = 10K
+
+
 constexpr bool TEST_FLUSH_SSD = false; // must be false
-constexpr bool TEST_SKIPLIST_DRAM = false; // mujst be false;
-constexpr bool TEST_SKIPLIST_NVM = true; // mujst be false;
-constexpr bool TEST_BPTREE_NVM = false;
-constexpr bool TEST_BPTREE_DRAM = false;
+constexpr bool TEST_SKIPLIST_DRAM = false; // must be false;
+constexpr bool TEST_SKIPLIST_NVM = false; // must be false;
+constexpr bool TEST_BPTREE_NVM = false; // must be false;
+constexpr bool TEST_BPTREE_DRAM = false; // must be false;
+constexpr bool TEST_CUCKOOFILTER = false; // must be false;
+constexpr bool TEST_CUCKOO_DELETE = false; // must be false;
 
 // compact
 constexpr int initMemtableSize = 1 * 1024 * 1024;
@@ -40,10 +48,11 @@ constexpr int MinCompactionL0Count = 8;
 
 // compile
 constexpr bool CUCKOO_FILTER = true;
+constexpr bool BLOOM_FILTER = false;
 constexpr bool DEBUG_CHECK = false;
 constexpr bool DEBUG_PRINT = true;
 constexpr bool TIME_ANALYSIS = true; // must be true, dynamic change B+Tree size reley on it
-constexpr bool READ_TIME_ANALYSIS = true;
+constexpr bool READ_TIME_ANALYSIS = false;
 constexpr bool WRITE_TIME_ANALYSIS = false;
 
 constexpr bool SKIPLIST_NVM = false; // no use
@@ -58,6 +67,8 @@ struct ReadStats {
   int64_t readL1Found = 0;
   int64_t readL2Found = 0;
   int64_t readExpire = 0;
+  int64_t bloomfilter = 0;
+  int64_t bloomNofilter = 0;
 
   uint64_t readMemTime = 0;
   uint64_t readL0Time = 0;
@@ -68,31 +79,50 @@ struct ReadStats {
   int64_t readL0Count = 0;
   int64_t readL1Count = 0;
   int64_t readL2Count = 0;
+
+  int64_t readBloomCount = 0;
+  int64_t readBloomTime = 0;
+  int64_t readCuckooCount = 0;
+  int64_t readCuckooTime = 0;
+
+
   std::string getStats() {
+    readL0Time += readCuckooTime;
     double avgMemTime =
         readMemCount == 0 ? 0 : readMemTime * 1.0 / readMemCount;
     double avgL0Time = readL0Count == 0 ? 0 : readL0Time * 1.0 / readL0Count;
     double avgL1Time = readL1Count == 0 ? 0 : readL1Time * 1.0 / readL1Count;
     double avgL2Time = readL2Count == 0 ? 0 : readL2Time * 1.0 / readL2Count;
+    double avgcuckooTime = readCuckooCount == 0 ? 0 : readCuckooTime * 1.0 / readCuckooCount;
+    double avgbloomTime = readBloomCount == 0 ? 0 : readBloomTime * 1.0 / readBloomCount;
     std::string s="read time analysis:";
     s = s + 
-        "\ncount       : " + std::to_string(readCount) +
-        "\nright       : " + std::to_string(readRight) +
-        "\nwrong       : " + std::to_string(readWrong) +
-        "\nnotfound    : " + std::to_string(readNotFound) +
-        "\nexpire      : " + std::to_string(readExpire) +
-        "\n<MemTime>   : " + std::to_string(readMemTime) +
-        "\n<L0Time>    : " + std::to_string(readL0Time) +
-        "\n<L1Time>    : " + std::to_string(readL1Time) +
-        "\n<L2Time>    : " + std::to_string(readL2Time) +
-        "\n[MemCount]  : " + std::to_string(readMemCount) +
-        "\n[L0Count]   : " + std::to_string(readL0Count) +
-        "\n[L1Count]   : " + std::to_string(readL1Count) +
-        "\n[L2Count]   : " + std::to_string(readL2Count) +
-        "\n{MemTimeAVG}: " + std::to_string(avgMemTime) +
-        "\n{L0TimeAVG} : " + std::to_string(avgL0Time) +
-        "\n{L1TimeAVG} : " + std::to_string(avgL1Time) +
-        "\n{L2TimeAVG} : " + std::to_string(avgL2Time);
+        "\ncount        : " + std::to_string(readCount) +
+        "\nright        : " + std::to_string(readRight) +
+        "\nwrong        : " + std::to_string(readWrong) +
+        "\nnotfound     : " + std::to_string(readNotFound) +
+        "\nreadL0Found   : " + std::to_string(readL0Found) +
+        "\nexpire       : " + std::to_string(readExpire) +
+        "\nbloomfilte r : " + std::to_string(bloomfilter) +
+        "\nbloomNofilter: " + std::to_string(bloomNofilter) +
+        "\n<MemTime>    : " + std::to_string(readMemTime) +
+        "\n<L0Time>     : " + std::to_string(readL0Time) +
+        "\n<L1Time>     : " + std::to_string(readL1Time) +
+        "\n<L2Time>     : " + std::to_string(readL2Time) +
+        "\n<bloomTime>     : " + std::to_string(readBloomTime) +
+        "\n<cuckooTime>     : " + std::to_string(readCuckooTime) +
+        "\n[MemCount]   : " + std::to_string(readMemCount) +
+        "\n[L0Count]    : " + std::to_string(readL0Count) +
+        "\n[L1Count]    : " + std::to_string(readL1Count) +
+        "\n[L2Count]    : " + std::to_string(readL2Count) +
+        "\n[BloomCount] : " + std::to_string(readBloomCount) +
+        "\n[CuckooCount]: " + std::to_string(readCuckooCount) +
+        "\n{MemTimeAVG} : " + std::to_string(avgMemTime) +
+        "\n{L0TimeAVG}  : " + std::to_string(avgL0Time) +
+        "\n{L1TimeAVG}  : " + std::to_string(avgL1Time) +
+        "\n{L2TimeAVG}  : " + std::to_string(avgL2Time) +
+        "\n{BloomTimeAVG}  : " + std::to_string(avgbloomTime) +
+        "\n{CuckooTimeAVG}  : " + std::to_string(avgcuckooTime);
     return s;
   }
 };

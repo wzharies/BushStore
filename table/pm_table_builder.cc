@@ -158,7 +158,7 @@ void PMTableBuilder::flush_kpage(){
 //     value_offset_ = 256;
 // }
 
-void PMTableBuilder::add(const Slice& key, uint32_t pointer, uint16_t index){
+bool PMTableBuilder::add(const Slice& key, uint32_t pointer, uint16_t index){
     // key_count_++;
     // writeByte_ += key.size();
     key_type key64 = DecodeDBBenchFixed64(key.data());
@@ -175,9 +175,10 @@ void PMTableBuilder::add(const Slice& key, uint32_t pointer, uint16_t index){
         // key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         flush_kpage();
     }
+    return false;
 }
 
-void PMTableBuilder::add(const Slice& key, uint16_t finger, uint32_t pointer, uint16_t index){
+bool PMTableBuilder::add(const Slice& key, uint16_t finger, uint32_t pointer, uint16_t index){
     // key_count_++;
     // writeByte_ += key.size();
     key_type key64 = DecodeDBBenchFixed64(key.data());
@@ -194,12 +195,13 @@ void PMTableBuilder::add(const Slice& key, uint16_t finger, uint32_t pointer, ui
         // key_buf_->bitmap = (1ULL << key_buf_->nums) - 1;
         flush_kpage();
     }
+    return false;
 }
 
-void PMTableBuilder::add(const Slice& key, const Slice& value, uint16_t finger){
+bool PMTableBuilder::add(const Slice& key, const Slice& value, uint16_t finger){
     // key_count_++;
     // writeByte_ += (key.size() + value.size());
-    auto [pointer, index] = write_.writeValue(key, value);
+    auto [pointer, index, flushed] = write_.writeValue(key, value);
 
     key_type key64 = DecodeDBBenchFixed64(key.data());
     assert(max_key_ <= key64);
@@ -230,10 +232,11 @@ void PMTableBuilder::add(const Slice& key, const Slice& value, uint16_t finger){
     //     value_page_ = (vPage*)mallocVpage();;
     //     used_pm_ += pm_alloc_->vPage_size_;
     // }
+    return flushed;
 }
 
-void PMTableBuilder::add(const Slice& key, const Slice& value){
-    add(key, value, hashcode1B(DecodeDBBenchFixed64(key.data())));
+bool PMTableBuilder::add(const Slice& key, const Slice& value){
+    return add(key, value, hashcode1B(DecodeDBBenchFixed64(key.data())));
 }
 
 std::tuple<std::vector<std::vector<void *>>, kPage*, kPage*> PMTableBuilder::finish(std::shared_ptr<lbtree> &tree){
