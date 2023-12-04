@@ -356,10 +356,10 @@ MAKE() {
 DB_BENCH_TEST() {
     echo "------------db_bench------------"
     benchmarks="fillrandom,readrandom,readseq,stats"
-    echo "------256B random write/read-----"
-    output_file=$output_path/Rnd_NVM_256B
-    WRITE80G-256B
-    RUN_DB_BENCH
+    # echo "------256B random write/read-----"
+    # output_file=$output_path/Rnd_NVM_256B
+    # WRITE80G-256B
+    # RUN_DB_BENCH
 
     echo "------1KB random write/read-----"
     output_file=$output_path/Rnd_NVM_1K
