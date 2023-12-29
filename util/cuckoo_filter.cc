@@ -276,7 +276,7 @@ void CuckooFilter::PutFirst0AndMin(Slice key, uint32_t value){
         for(int i = 0; i < ASSOC_WAY; i++){
             readLid = bucket[i].lid.load(std::memory_order_relaxed);
             if(readLid == 0){
-                                bucket[i].tag.store(tag,std::memory_order_relaxed);
+                bucket[i].tag.store(tag,std::memory_order_relaxed);
                 bucket[i].lid.store(value,std::memory_order_relaxed);
                 return ;
             }else if(readLid < MinLid && readLid < minFileNumber){
@@ -287,7 +287,9 @@ void CuckooFilter::PutFirst0AndMin(Slice key, uint32_t value){
         }
     }
     if(MinLid != UINT32_MAX){
+        buckets_[index[mk]][mi].lid.store(tag, std::memory_order_relaxed);
         buckets_[index[mk]][mi].lid.store(value, std::memory_order_relaxed);
+        return ;
     }
     // for(int k = 0;k < 2; k++){
     //     bucket = buckets_[index[k]];
