@@ -256,6 +256,8 @@ private:
   std::atomic<uint64_t> kv_total_;
   double valid_rate_;
   std::thread compactionThread_;
+  uint64_t lastWriteMemTime0_ = 0;
+  std::atomic<int> lastMemTime_ = 0;
   std::atomic<int> lastCompactL0Time_ = 0;
   std::atomic<int> lastCompactL1Time_ = 0;
   std::atomic<size_t> compactL0Count_ = 2;

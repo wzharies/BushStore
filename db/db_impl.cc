@@ -170,6 +170,9 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       cuckoo_filter_(raw_options.bucket_nums == 0 ? nullptr : new CuckooFilter(raw_options.bucket_nums)),
       usage_(0),
       compactionThread_(&DBImpl::MergeL1, this) {
+        if(MALLOC_TIME){
+          pmAlloc_->setUsedTime(&writeStats_.used_time_);
+        }
         maxMemtableSize_ = raw_options.write_buffer_size;
         if(raw_options.dynamic_tree){
           curMemtableSize_ = initMemtableSize;
@@ -653,6 +656,7 @@ Status DBImpl::WriteLevel0TableToPM(MemTable* mem){
   if (DEBUG_PRINT) {
     double usage1 = pmAlloc_->getMemoryUsabe();
     std::cout << "flush at level 0, cost time : " << imm_micros / 1000;
+    std::cout << "ms writeMemtable, cost time : " << lastMemTime_ / 1000;
     std::cout << "ms memoryUsage: " << usage1 << " flush count: " << count << std::endl;
   }
   return Status::OK();
@@ -1211,7 +1215,11 @@ Status DBImpl::CompactionLevel0(){
         imm_micros / 1000, Table_L0_Merge.size());
     lastCompactL1Time_ = imm_micros / 1000;
     if(lastCompactL0Time_ != 0 && lastCompactL1Time_ != 0 && options_.dynamic_tree){
-      mergeCount = lastCompactL1Time_ / lastCompactL0Time_;
+      if(lastMemTime_ > lastCompactL0Time_ * 10){
+        lastMemTime_ = lastCompactL0Time_ * 10;
+      }
+      mergeCount = lastCompactL1Time_ / std::max(lastCompactL0Time_,lastMemTime_);
+      // printf("%d %d %d %d\n", mergeCount, lastCompactL1Time_.load(), lastCompactL0Time_.load(), lastMemTime_.load());
       if(mergeCount >= minMergeCount && mergeCount <= maxMergeCount){
         compactL0Count_ = mergeCount;
       }if(mergeCount > maxMergeCount && curMemtableSize_ < maxMemtableSize_){
@@ -1219,7 +1227,7 @@ Status DBImpl::CompactionLevel0(){
         if(options_.flush_ssd){
           curMemtableSize_ += addMemtableSize / 16;
         }else{
-          curMemtableSize_ += addMemtableSize * (mergeCount / maxMergeCount);
+          curMemtableSize_ += addMemtableSize * (1.0 * mergeCount / maxMergeCount);
         }
         if(curMemtableSize_ > maxMemtableSize_){
           curMemtableSize_ = maxMemtableSize_;
@@ -3050,6 +3058,12 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       mem_->setPMAllocator(pmAlloc_,kv_total_);
       mem_->Ref();
       force = false;  // Do not force another compaction if have room
+      if(lastWriteMemTime0_ == 0){
+        lastWriteMemTime0_ = env_->NowMicros();
+      }else{
+        lastMemTime_ = (env_->NowMicros() - lastWriteMemTime0_) / 1000;
+        lastWriteMemTime0_ = env_->NowMicros();
+      }
       MaybeScheduleCompaction();
     }
   }

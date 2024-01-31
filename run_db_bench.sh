@@ -17,7 +17,7 @@ ssd_path=/media/nvme/pm_test
 pm_path=/mnt/pmem0.1/pm_test
 # leveldb_path=/tmp/leveldb
 leveldb_path=$pm_path
-output_path=$db_path/output-new8
+output_path=$db_path/output-new9
 output_file=$output_path/result.out
 
 export CPLUS_INCLUDE_PATH=$db_path/include:$CPLUS_INCLUDE_PATH
@@ -697,46 +697,47 @@ CUCKOO_FILTER_ANALYSIS(){
 CUCKOO_FILTER_ANALYSIS2(){
     echo "------cuckoo filter analysis-------"
     sed -i 's/READ_TIME_ANALYSIS = false/READ_TIME_ANALYSIS = true/g' "$db_path"/util/global.h
+    sed -i 's/WRITE_TIME_ANALYSIS = false/WRITE_TIME_ANALYSIS = true/g' "$db_path"/util/global.h
     sed -i 's/TEST_CUCKOOFILTER = false/TEST_CUCKOOFILTER = true/g' "$db_path"/util/global.h
 
-    # benchmarks="fillrandom,stats"
+    benchmarks="fillrandom,stats"
 
-    # echo "---- with delete cuckoo filter without bloom filter----"
-    # sed -i 's/TEST_CUCKOO_DELETE = false/TEST_CUCKOO_DELETE = true/g' "$db_path"/util/global.h
-    # sed -i 's/TEST_CUCKOOFILTER = true/TEST_CUCKOOFILTER = false/g' "$db_path"/util/global.h
+    echo "---- with delete cuckoo filter without bloom filter----"
+    sed -i 's/TEST_CUCKOO_DELETE = false/TEST_CUCKOO_DELETE = true/g' "$db_path"/util/global.h
+    sed -i 's/TEST_CUCKOOFILTER = true/TEST_CUCKOOFILTER = false/g' "$db_path"/util/global.h
+    MAKE
+    output_file=$output_path/Cuckoo_Filter_Delete_R_NVM_1K
+    WRITE80G
+    RUN_DB_BENCH
+    sed -i 's/TEST_CUCKOO_DELETE = true/TEST_CUCKOO_DELETE = false/g' "$db_path"/util/global.h
+    sed -i 's/TEST_CUCKOOFILTER = false/TEST_CUCKOOFILTER = true/g' "$db_path"/util/global.h
+    MAKE
+
+
+
+    # benchmarks="fillrandom,stats,readrandom,stats"
+    # echo "---- without cuckoo filter without bloom filter----"
+    # sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' "$db_path"/util/global.h
     # MAKE
-    # output_file=$output_path/Cuckoo_Filter_Delete_R_NVM_1K
+    # output_file=$output_path/Cuckoo_Filter_NO_BL_NO_RW_NVM_1K
     # WRITE80G
     # RUN_DB_BENCH
-    # sed -i 's/TEST_CUCKOO_DELETE = true/TEST_CUCKOO_DELETE = false/g' "$db_path"/util/global.h
-    # sed -i 's/TEST_CUCKOOFILTER = false/TEST_CUCKOOFILTER = true/g' "$db_path"/util/global.h
+
+    # echo "---- without cuckoo filter with bloom filter----"
+    # sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' "$db_path"/util/global.h
+    # sed -i 's/BLOOM_FILTER = false/BLOOM_FILTER = true/g' "$db_path"/util/global.h
     # MAKE
+    # output_file=$output_path/Cuckoo_Filter_NO_BL_YES_RW_NVM_1K
+    # WRITE80G
+    # RUN_DB_BENCH
 
-
-
-    benchmarks="fillrandom,stats,readrandom,stats"
-    echo "---- without cuckoo filter without bloom filter----"
-    sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' "$db_path"/util/global.h
-    MAKE
-    output_file=$output_path/Cuckoo_Filter_NO_BL_NO_RW_NVM_1K
-    WRITE80G
-    RUN_DB_BENCH
-
-    echo "---- without cuckoo filter with bloom filter----"
-    sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' "$db_path"/util/global.h
-    sed -i 's/BLOOM_FILTER = false/BLOOM_FILTER = true/g' "$db_path"/util/global.h
-    MAKE
-    output_file=$output_path/Cuckoo_Filter_NO_BL_YES_RW_NVM_1K
-    WRITE80G
-    RUN_DB_BENCH
-
-    echo "---- with cuckoo filter 32M ----"
-    sed -i 's/CUCKOO_FILTER = false/CUCKOO_FILTER = true/g' "$db_path"/util/global.h
-    sed -i 's/BLOOM_FILTER = true/BLOOM_FILTER = false/g' "$db_path"/util/global.h
-    MAKE
-    output_file=$output_path/Cuckoo_Filter_YES_RW_NVM_1K
-    WRITE80G
-    RUN_DB_BENCH
+    # echo "---- with cuckoo filter 32M ----"
+    # sed -i 's/CUCKOO_FILTER = false/CUCKOO_FILTER = true/g' "$db_path"/util/global.h
+    # sed -i 's/BLOOM_FILTER = true/BLOOM_FILTER = false/g' "$db_path"/util/global.h
+    # MAKE
+    # output_file=$output_path/Cuckoo_Filter_YES_RW_NVM_1K
+    # WRITE80G
+    # RUN_DB_BENCH
 
     # echo "---- with cuckoo filter 16M ----"
     # output_file=$output_path/Cuckoo_Filter_YES_16M_RW_NVM_1K
@@ -773,6 +774,7 @@ CUCKOO_FILTER_ANALYSIS2(){
     # RUN_DB_BENCH
 
     sed -i 's/READ_TIME_ANALYSIS = true/READ_TIME_ANALYSIS = false/g' "$db_path"/util/global.h
+    sed -i 's/WRITE_TIME_ANALYSIS = true/WRITE_TIME_ANALYSIS = false/g' "$db_path"/util/global.h
     sed -i 's/TEST_CUCKOOFILTER = true/TEST_CUCKOOFILTER = false/g' "$db_path"/util/global.h
     sed -i 's/CUCKOO_FILTER = false/CUCKOO_FILTER = true/g' "$db_path"/util/global.h
     sed -i 's/BLOOM_FILTER = true/BLOOM_FILTER = false/g' "$db_path"/util/global.h
@@ -860,40 +862,40 @@ DYNAMIC_TREE_ANALYSIS(){
     WRITE80G
     RUN_DB_BENCH
 
-    echo "---- static 16MB memtable----"
-    output_file=$output_path/tree_static_16MB
-    dynamic_tree=0
-    write_buffer_size=$((16*$MB))
-    WRITE80G
-    RUN_DB_BENCH
+    # echo "---- static 16MB memtable----"
+    # output_file=$output_path/tree_static_16MB
+    # dynamic_tree=0
+    # write_buffer_size=$((16*$MB))
+    # WRITE80G
+    # RUN_DB_BENCH
 
-    echo "---- static 32MB memtable----"
-    output_file=$output_path/tree_static_32MB
-    dynamic_tree=0
-    write_buffer_size=$((32*$MB))
-    WRITE80G
-    RUN_DB_BENCH
+    # echo "---- static 32MB memtable----"
+    # output_file=$output_path/tree_static_32MB
+    # dynamic_tree=0
+    # write_buffer_size=$((32*$MB))
+    # WRITE80G
+    # RUN_DB_BENCH
 
-    echo "---- static 64MB memtable----"
-    output_file=$output_path/tree_static_64MB
-    dynamic_tree=0
-    write_buffer_size=$((64*$MB))
-    WRITE80G
-    RUN_DB_BENCH
+    # echo "---- static 64MB memtable----"
+    # output_file=$output_path/tree_static_64MB
+    # dynamic_tree=0
+    # write_buffer_size=$((64*$MB))
+    # WRITE80G
+    # RUN_DB_BENCH
 
-    echo "---- static 128MB memtable----"
-    output_file=$output_path/tree_static_128MB
-    dynamic_tree=0
-    write_buffer_size=$((128*$MB))
-    WRITE80G
-    RUN_DB_BENCH
+    # echo "---- static 128MB memtable----"
+    # output_file=$output_path/tree_static_128MB
+    # dynamic_tree=0
+    # write_buffer_size=$((128*$MB))
+    # WRITE80G
+    # RUN_DB_BENCH
 
-    echo "---- static 256MB memtable----"
-    output_file=$output_path/tree_static_256MB
-    dynamic_tree=0
-    write_buffer_size=$((256*$MB))
-    WRITE80G
-    RUN_DB_BENCH
+    # echo "---- static 256MB memtable----"
+    # output_file=$output_path/tree_static_256MB
+    # dynamic_tree=0
+    # write_buffer_size=$((256*$MB))
+    # WRITE80G
+    # RUN_DB_BENCH
 
     throughput=0
     dynamic_tree=1
@@ -1084,23 +1086,27 @@ function SMALL_VALUE_TEST(){
 
 function MALLOC_FLUSH_TEST(){
     echo "------malloc flush analysis-------"
-    benchmarks="fillrandom,readrandom,stats"
+    benchmarks="fillrandom,stats"
+    sed -i 's/MALLOC_TIME = false/MALLOC_TIME = true/g' "$db_path"/util/global.h
+    sed -i 's/WRITE_TIME_ANALYSIS = false/WRITE_TIME_ANALYSIS = true/g' "$db_path"/util/global.h
 
     echo "---- with malloc flush ----"
-    sed -i 's/MALLO_CFLUSH = false/MALLO_CFLUSH = true/g' "$db_path"/util/global.h
+    sed -i 's/MALLOC_FLUSH = false/MALLOC_FLUSH = true/g' "$db_path"/util/global.h
     MAKE
     output_file=$output_path/MALLOC_FLUSH_YES_RW_NVM_1K
     WRITE80G
     RUN_DB_BENCH
 
     echo "---- without malloc flush ----"
-    sed -i 's/MALLO_CFLUSH = true/MALLO_CFLUSH = false/g' "$db_path"/util/global.h
+    sed -i 's/MALLOC_FLUSH = true/MALLOC_FLUSH = false/g' "$db_path"/util/global.h
     MAKE
     output_file=$output_path/MALLOC_FLUSH_NO_RW_NVM_1K
     WRITE80G
     RUN_DB_BENCH
 
-    sed -i 's/MALLO_CFLUSH = true/MALLO_CFLUSH = false/g' "$db_path"/util/global.h
+    sed -i 's/MALLOC_FLUSH = true/MALLOC_FLUSH = false/g' "$db_path"/util/global.h
+    sed -i 's/MALLOC_TIME = true/MALLOC_TIME = false/g' "$db_path"/util/global.h
+    sed -i 's/WRITE_TIME_ANALYSIS = true/WRITE_TIME_ANALYSIS = false/g' "$db_path"/util/global.h
     MAKE
 }
 
@@ -1545,6 +1551,9 @@ INDEX_TEST
 NVM_DATA_SIZE_ANALYSIS
 
 # CUCKOO_FILTER_ANALYSIS2
+
+# MALLOC_FLUSH_TEST
+# DYNAMIC_TREE_ANALYSIS
 
 CLEAN_DB
 # sudo cp build/libleveldb.a /usr/local/lib/

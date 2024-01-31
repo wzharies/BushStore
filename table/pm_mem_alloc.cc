@@ -14,6 +14,12 @@
 
 namespace leveldb {
 
+static uint64_t NowMicros() {
+    static constexpr uint64_t kUsecondsPerSecond = 1000000;
+    struct ::timeval tv;
+    ::gettimeofday(&tv, nullptr);
+    return static_cast<uint64_t>(tv.tv_sec) * kUsecondsPerSecond + tv.tv_usec;
+}
 
 uint64_t base_addr;
 
@@ -110,6 +116,10 @@ uint64_t PMMemAllocator::SuitablePageSize(uint64_t page_size) {
 }
 
 std::vector<void*> PMMemAllocator::mallocPage(PageType type, uint64_t count){
+  uint64_t startTime;
+  if(MALLOC_TIME){
+    startTime = NowMicros();
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<void*> res;
   res.reserve(count);
@@ -120,7 +130,7 @@ std::vector<void*> PMMemAllocator::mallocPage(PageType type, uint64_t count){
         res.insert(res.end(), ret.begin(), ret.end());
         count -= ret.size();
         if(count == 0){
-          return res;
+          break;
         }
       }
     }
@@ -131,7 +141,7 @@ std::vector<void*> PMMemAllocator::mallocPage(PageType type, uint64_t count){
         res.insert(res.end(), ret.begin(), ret.end());
         count -= ret.size();
         if(count == 0){
-          return res;
+          break;
         }
       }
     }
@@ -142,19 +152,30 @@ std::vector<void*> PMMemAllocator::mallocPage(PageType type, uint64_t count){
     res.insert(res.end(), ret.begin(), ret.end());
     count -= ret.size();
     if(count == 0){
-      return res;
+      break;
     }
+  }
+  if(MALLOC_TIME){
+    (*used_time_) += (NowMicros() - startTime);
   }
   return res;
 }
 
 void* PMMemAllocator::mallocPage(PageType type) {
+  uint64_t startTime;
+  if(MALLOC_TIME){
+    startTime = NowMicros();
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   // char* page_addr;
   if (type == key_t) {
     for(int i = Kpage_.size() - 1; i >= 0; i--){
       if(!Kpage_[i]->isFull()){
-        return Kpage_[i]->getNewPage();
+        auto result =  Kpage_[i]->getNewPage();
+        if(MALLOC_TIME){
+          (*used_time_) += (NowMicros() - startTime);
+        }
+        return result;
       }
     }
     // for (auto extent : Kpage_) {
@@ -165,7 +186,11 @@ void* PMMemAllocator::mallocPage(PageType type) {
   } else {
     for(int i = Vpage_.size() - 1; i >= 0; i--){
       if(!Vpage_[i]->isFull()){
-        return Vpage_[i]->getNewPage();
+        auto result = Vpage_[i]->getNewPage();
+        if(MALLOC_TIME){
+          (*used_time_) += (NowMicros() - startTime);
+        }
+        return result;
       }
     }
     // for (auto extent : Vpage_) {
@@ -175,14 +200,25 @@ void* PMMemAllocator::mallocPage(PageType type) {
     // }
   }
   auto extent = NewExtent(type);
-  return extent->getNewPage();
+  auto result = extent->getNewPage();
+  if(MALLOC_TIME){
+    (*used_time_) += (NowMicros() - startTime);
+  }
+  return result;
 }
 
 void PMMemAllocator::freePage(char* addr, PageType type) {
+  uint64_t startTime;
+  if(MALLOC_TIME){
+    startTime = NowMicros();
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   size_t index = ((uint64_t)addr - base_addr) / options_.extent_size_;
   assert(index < pages.size());
   pages[index]->freePage(addr);
+  if(MALLOC_TIME){
+    (*used_time_) += (NowMicros() - startTime);
+  }
 }
 
 void PMMemAllocator::Sync() {

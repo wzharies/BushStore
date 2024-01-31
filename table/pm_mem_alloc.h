@@ -163,6 +163,9 @@ class PMMemAllocator {
     // total += (options_.pm_size_ / options_.extent_size_ - pages.size()) * options_.extent_size_;
     return 1.0 * used / total;
   }
+  void setUsedTime(uint64_t* time){
+    used_time_ = time;
+  }
   const Options& options_;
   uint64_t kPage_size_;
   uint64_t vPage_size_;
@@ -177,6 +180,7 @@ class PMMemAllocator {
   uint64_t kPage_count_;
   // uint64_t vPage_slot_count_;
   uint64_t vPage_count_;
+  uint64_t* used_time_;
 
   size_t mapped_len_;
   int is_pmem_;

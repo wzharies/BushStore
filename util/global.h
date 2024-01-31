@@ -56,7 +56,8 @@ constexpr bool READ_TIME_ANALYSIS = false;
 constexpr bool WRITE_TIME_ANALYSIS = false;
 
 constexpr bool SKIPLIST_NVM = false; // no use
-constexpr bool MALLO_CFLUSH = false;
+constexpr bool MALLOC_FLUSH = false;
+constexpr bool MALLOC_TIME = false;
 
 struct ReadStats {
   int64_t readCount = 0;
@@ -131,6 +132,7 @@ struct WriteStats {
   uint64_t writeL0Time = 0;
   uint64_t writeL1Time = 0;
   uint64_t writeL2Time = 0;
+  uint64_t used_time_ = 0;
 
   int64_t writeL0Count = 0;
   int64_t writeL1Count = 0;
@@ -148,7 +150,8 @@ struct WriteStats {
         "\n[L2Count]   : " + std::to_string(writeL2Count) +
         "\n{L0TimeAVG} : " + std::to_string(avgL0Time) +
         "\n{L1TimeAVG} : " + std::to_string(avgL1Time) +
-        "\n{L2TimeAVG} : " + std::to_string(avgL2Time);
+        "\n{L2TimeAVG} : " + std::to_string(avgL2Time) +
+        "\n{MallocTime} : " + std::to_string(used_time_);
     return s;
   }
 };

@@ -20,7 +20,7 @@ public:
         int innerIndex = (index & 7);
         assert(!get(index));
         bitmaps_[charIndex] |= (1 << innerIndex);
-        if(MALLO_CFLUSH){
+        if(MALLOC_FLUSH){
             clflush(&bitmaps_[charIndex], 1);
         }
     };
@@ -31,7 +31,7 @@ public:
         int innerIndex = (index & 7);
         assert(get(index));
         bitmaps_[charIndex] ^= (1 << innerIndex);
-        if(MALLO_CFLUSH){
+        if(MALLOC_FLUSH){
             clflush(&bitmaps_[charIndex], 1);
         }
     };
