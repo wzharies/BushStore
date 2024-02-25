@@ -31,7 +31,7 @@ namespace ycsbc {
         options->pm_path_ = pm_path;
         options->flush_ssd = utils::StrToBool(props["flushssd"]);
         if(options->flush_ssd){
-            options->pm_size_ = 16ULL * 1024 * 1024 * 1024;
+            options->pm_size_ = 40ULL * 1024 * 1024 * 1024;
         }
         options->filter_policy = leveldb::NewBloomFilterPolicy(16);
         // printf("set MioDB options!\n");

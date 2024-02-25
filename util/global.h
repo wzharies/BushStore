@@ -27,6 +27,7 @@ constexpr int STOP_GC_COUNT = 5;
 constexpr double STOP_GC_RATE = 0.05;
 constexpr uint64_t STOP_THRESHOLD = 10ULL * 1024 * 1024 * 1024;
 constexpr int MAX_GC_VPAGE = 1024 * 10;// 5G / 512K = 10K
+constexpr bool Cache_All_Filter = false;
 
 
 constexpr bool TEST_FLUSH_SSD = false; // must be false

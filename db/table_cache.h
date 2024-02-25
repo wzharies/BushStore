@@ -42,6 +42,10 @@ class TableCache {
 
   // Evict any entry for the specified file number
   void Evict(uint64_t file_number);
+  
+  size_t TotalCharge() {
+    return cache_->TotalCharge();
+  }
 
  private:
   Status FindTable(uint64_t file_number, uint64_t file_size, Cache::Handle**);

@@ -130,7 +130,7 @@ Options SanitizeOptions(const std::string& dbname,
     }
   }
   if (result.block_cache == nullptr) {
-    result.block_cache = NewLRUCache(8 << 20);
+    result.block_cache = NewLRUCache(512 << 20);
   }
   return result;
 }
@@ -1136,6 +1136,10 @@ Status DBImpl::CompactionLevel0(){
         // };
         // check(input->index(), input->pointer(), key);
         builder.add(key, input->finger(), input->pointer(), input->index());
+      }
+      if (TEST_CUCKOO_DELETE) {
+        // cuckoo_filter_->Put(ExtractUserKey(key), currentFileNumber);
+        cuckoo_filter_->PutFirst0AndMin(ExtractUserKey(key), UINT32_MAX);
       }
     } else {
       kv_total_.fetch_sub(input->value().size() + 8, std::memory_order_relaxed);
@@ -2597,14 +2601,14 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
 
 Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
                                 std::string* value) {
-    mutex_l0_.lock();
+  mutex_l0_.lock();
   uint32_t firstFileNumber =
       cuckoo_filter_ == nullptr
           ? -1
           : cuckoo_filter_->minFileNumber.load(std::memory_order_relaxed);
   std::vector<std::shared_ptr<lbtree>> trees = Table_L0_;
   std::vector<std::shared_ptr<BloomFilterPolicy>> bloom_filters;
-  if(BLOOM_FILTER){
+  if (BLOOM_FILTER) {
     bloom_filters = bloom_filters_;
   }
   mutex_l0_.unlock();
@@ -2623,89 +2627,26 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
   bool isOnL0 = true;
   // bool isOnL0Again = false;
   if (CUCKOO_FILTER && cuckoo_filter_->isValid()) {
-
-      if (READ_TIME_ANALYSIS) {
-        startTime1 = env_->NowMicros();
-      }
-      cuckoo_filter_->GetMax(key, &fileNumber);
-      if (READ_TIME_ANALYSIS) {
-        endTime1 = env_->NowMicros();
-        readStats_.readCuckooTime += (endTime1 - startTime1);
-        readStats_.readCuckooCount++;
-      }
-      readStats_.readCount++;
-            if (fileNumber != 0 && fileNumber >= firstFileNumber) {
-        fileNumber -= firstFileNumber;
-        if (fileNumber < trees.size()) {
-
-          if (READ_TIME_ANALYSIS) {
-            startTime = env_->NowMicros();
-          }
-          value_addr = (char*)trees[fileNumber]->lookup(rawKey, &pos);
-          if (READ_TIME_ANALYSIS) {
-            endTime = env_->NowMicros();
-            readStats_.readL0Time += (endTime - startTime);
-            readStats_.readL0Count++;
-          }
-
-          if (value_addr != nullptr) {
-            value_length = leveldb::DecodeFixed32(value_addr + VPAGE_KEY_SIZE);
-            // assert(value_length = 1000);
-            *value = std::string(value_addr + 4 + VPAGE_KEY_SIZE, value_length);
-            readStats_.readRight++;
-            readStats_.readL0Found++;
-            return Status::OK();
-          }
-                } else {
-          readStats_.readWrong++;
-          fileNumber = -1;
-        }
-                  } else if (fileNumber == 0) {
-        readStats_.readNotFound++;
-        // fileNumber = -1;
-        isOnL0 = true;
-            } else if (fileNumber < firstFileNumber) {
-        readStats_.readExpire++;
-        isOnL0 = false;
-        // isOnL0Again = true;
-      }
-      // else{
-      //   std::cout << "cuckoo_filter got wrong fileNumber : " << fileNumber <<
-      //   std::endl;
-      // }
-  }
-
-  if (READ_TIME_ANALYSIS) {
-    startTime = env_->NowMicros();
-  }
-  if (isOnL0) {
-      for (int i = 0; i < trees.size(); i++) {
-        if (CUCKOO_FILTER) {
-          if (i == fileNumber) {
-            continue;
-          }
-        }
-        if (BLOOM_FILTER) {
-          if (READ_TIME_ANALYSIS) {
-            startTime2 = env_->NowMicros();
-          }
-          bool result = bloom_filters[i]->KeyMayMatch(key.ToString(8));
-          if (READ_TIME_ANALYSIS) {
-            endTime2 = env_->NowMicros();
-            readStats_.readBloomTime += (endTime2 - startTime2);
-            readStats_.readBloomCount++;
-          }
-          if(!result){
-            readStats_.bloomfilter++;
-            continue;
-          }else{
-            readStats_.bloomNofilter++;
-          }
-        }
-        value_addr = (char*)trees[i]->lookup(rawKey, &pos);
+    if (READ_TIME_ANALYSIS) {
+      startTime1 = env_->NowMicros();
+    }
+    cuckoo_filter_->GetMax(key, &fileNumber);
+    if (READ_TIME_ANALYSIS) {
+      endTime1 = env_->NowMicros();
+      readStats_.readCuckooTime += (endTime1 - startTime1);
+      readStats_.readCuckooCount++;
+    }
+    readStats_.readCount++;
+    if (fileNumber != 0 && fileNumber >= firstFileNumber) {
+      fileNumber -= firstFileNumber;
+      if (fileNumber < trees.size()) {
         if (READ_TIME_ANALYSIS) {
-          // endTime = env_->NowMicros();
-          // readStats_.readL0Time += (endTime - startTime);
+          startTime = env_->NowMicros();
+        }
+        value_addr = (char*)trees[fileNumber]->lookup(rawKey, &pos);
+        if (READ_TIME_ANALYSIS) {
+          endTime = env_->NowMicros();
+          readStats_.readL0Time += (endTime - startTime);
           readStats_.readL0Count++;
         }
 
@@ -2713,43 +2654,111 @@ Status DBImpl::GetValueFromTree(const ReadOptions& options, const Slice& key,
           value_length = leveldb::DecodeFixed32(value_addr + VPAGE_KEY_SIZE);
           // assert(value_length = 1000);
           *value = std::string(value_addr + 4 + VPAGE_KEY_SIZE, value_length);
+          readStats_.readRight++;
           readStats_.readL0Found++;
-          endTime = env_->NowMicros();
-          readStats_.readL0Time += (endTime - startTime);
           return Status::OK();
         }
+      } else {
+        if(TEST_CUCKOO_DELETE){
+          isOnL0 = false;
+        }else{
+          readStats_.readWrong++;
+          fileNumber = -1;
+        }
       }
-  }
-  if (READ_TIME_ANALYSIS) {
-    endTime = env_->NowMicros();
-    readStats_.readL0Time += (endTime - startTime);\
-  }
-    {
-      std::lock_guard<std::mutex> lock(mutex_l1_);
-      if (Table_LN_.empty() || Table_LN_[0] == nullptr) {
-      return Status::NotFound("");
+    } else if (fileNumber == 0) {
+      readStats_.readNotFound++;
+      if(TEST_CUCKOO_DELETE){
+        return Status::NotFound("");
       }
-      std::shared_ptr<lbtree> tree = Table_LN_[0];
+      // fileNumber = -1;
+      isOnL0 = true;
+    } else if (fileNumber < firstFileNumber) {
+      readStats_.readExpire++;
+      isOnL0 = false;
+      // isOnL0Again = true;
+    }
+    // else{
+    //   std::cout << "cuckoo_filter got wrong fileNumber : " << fileNumber <<
+    //   std::endl;
+    // }
+  }
 
-      if (READ_TIME_ANALYSIS) {
-        startTime = env_->NowMicros();
+  if (READ_TIME_ANALYSIS) {
+    startTime = env_->NowMicros();
+  }
+  if (isOnL0) {
+    for (int i = 0; i < trees.size(); i++) {
+      if (CUCKOO_FILTER) {
+        if (i == fileNumber) {
+          continue;
+        }
       }
-      value_addr = (char*)Table_LN_[0]->lookup(rawKey, &pos);
+      if (BLOOM_FILTER) {
+        if (READ_TIME_ANALYSIS) {
+          startTime2 = env_->NowMicros();
+        }
+        bool result = bloom_filters[i]->KeyMayMatch(key.ToString(8));
+        if (READ_TIME_ANALYSIS) {
+          endTime2 = env_->NowMicros();
+          readStats_.readBloomTime += (endTime2 - startTime2);
+          readStats_.readBloomCount++;
+        }
+        if (!result) {
+          readStats_.bloomfilter++;
+          continue;
+        } else {
+          readStats_.bloomNofilter++;
+        }
+      }
+      value_addr = (char*)trees[i]->lookup(rawKey, &pos);
       if (READ_TIME_ANALYSIS) {
-        endTime = env_->NowMicros();
-        readStats_.readL1Time += (endTime - startTime);
-        readStats_.readL1Count++;
+        // endTime = env_->NowMicros();
+        // readStats_.readL0Time += (endTime - startTime);
+        readStats_.readL0Count++;
       }
 
       if (value_addr != nullptr) {
         value_length = leveldb::DecodeFixed32(value_addr + VPAGE_KEY_SIZE);
         // assert(value_length = 1000);
         *value = std::string(value_addr + 4 + VPAGE_KEY_SIZE, value_length);
-        readStats_.readL1Found++;
+        readStats_.readL0Found++;
+        endTime = env_->NowMicros();
+        readStats_.readL0Time += (endTime - startTime);
         return Status::OK();
-      } else {
-      // value_addr = (char*)Table_LN_[0]->lookup(rawKey, &pos);
       }
+    }
+  }
+  if (READ_TIME_ANALYSIS) {
+    endTime = env_->NowMicros();
+    readStats_.readL0Time += (endTime - startTime);
+  }
+  {
+    std::lock_guard<std::mutex> lock(mutex_l1_);
+    if (Table_LN_.empty() || Table_LN_[0] == nullptr) {
+      return Status::NotFound("");
+    }
+    std::shared_ptr<lbtree> tree = Table_LN_[0];
+
+    if (READ_TIME_ANALYSIS) {
+      startTime = env_->NowMicros();
+    }
+    value_addr = (char*)Table_LN_[0]->lookup(rawKey, &pos);
+    if (READ_TIME_ANALYSIS) {
+      endTime = env_->NowMicros();
+      readStats_.readL1Time += (endTime - startTime);
+      readStats_.readL1Count++;
+    }
+
+    if (value_addr != nullptr) {
+      value_length = leveldb::DecodeFixed32(value_addr + VPAGE_KEY_SIZE);
+      // assert(value_length = 1000);
+      *value = std::string(value_addr + 4 + VPAGE_KEY_SIZE, value_length);
+      readStats_.readL1Found++;
+      return Status::OK();
+    } else {
+      // value_addr = (char*)Table_LN_[0]->lookup(rawKey, &pos);
+    }
   }
   // if (isOnL0Again) {
   //     for (int i = 0; i < trees.size(); i++) {
@@ -3123,6 +3132,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     return true;
   } else if (in == "approximate-memory-usage") {
     size_t total_usage = options_.block_cache->TotalCharge();
+    size_t total_usage2 = table_cache_->TotalCharge();
     if (mem_) {
       total_usage += mem_->ApproximateMemoryUsage();
     }
@@ -3130,8 +3140,8 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
       total_usage += imm_->ApproximateMemoryUsage();
     }
     char buf[50];
-    std::snprintf(buf, sizeof(buf), "%llu",
-                  static_cast<unsigned long long>(total_usage));
+    std::snprintf(buf, sizeof(buf), "%llu %llu",
+                  static_cast<unsigned long long>(total_usage), static_cast<unsigned long long>(total_usage2));
     value->append(buf);
     return true;
   } else if (in == "flush"){

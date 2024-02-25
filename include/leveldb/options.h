@@ -80,12 +80,12 @@ struct LEVELDB_EXPORT Options {
   // so you may wish to adjust this parameter to control memory usage.
   // Also, a larger write buffer will result in a longer recovery time
   // the next time the database is opened.
-  size_t write_buffer_size = 100 * 1024 * 1024;
+  size_t write_buffer_size = 128 * 1024 * 1024;
 
   // Number of open files that can be used by the DB.  You may need to
   // increase this if your database has a large working set (budget
   // one open file per 2MB of working set).
-  int max_open_files = 1000;
+  int max_open_files = 10000;
 
   // Control over blocks (user data is stored in a set of blocks, and
   // a block is the unit of reading from disk).
@@ -113,7 +113,7 @@ struct LEVELDB_EXPORT Options {
   // compactions and hence longer latency/performance hiccups.
   // Another reason to increase this parameter might be when you are
   // initially populating a large database.
-  size_t max_file_size = 100 * 1024 * 1024;
+  size_t max_file_size = 128 * 1024 * 1024;
 
   // Compress blocks using the specified compression algorithm.  This
   // parameter can be changed dynamically.
@@ -145,10 +145,10 @@ struct LEVELDB_EXPORT Options {
   // int bucket_nums = 0x1000000;
     int bucket_nums = 128 * 1024 * 1024;
   // std::string pm_path_ = "/media/nvme/pm_test";
-  std::string pm_path_ = "/mnt/pmem0.1/pm_test/";
+  std::string pm_path_ = "/mnt/pmem1/pm_test/";
   // size_t key_size_ = 8;
   // size_t value_size_ = 1000;
-  uint64_t pm_size_ = 180ULL * 1024 * 1024 * 1024;
+  uint64_t pm_size_ = 300ULL * 1024 * 1024 * 1024;
   uint64_t extent_size_ = 512 * 1024 * 1024;
   bool use_pm_ = true; // use PM or use DRAM as PM
   bool flush_ssd = false;

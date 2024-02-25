@@ -142,6 +142,8 @@ static bool Throughput = false;
 static bool DYNAMIC_TREE = true;
 static uint64_t BUCKET_NUMS = 32 * 1024 * 1024;
 
+static uint64_t group_size = 0;
+
 namespace leveldb {
 
 namespace {
@@ -623,6 +625,8 @@ class Benchmark {
         PrintStats("leveldb.stats");
       } else if (name == Slice("sstables")) {
         PrintStats("leveldb.sstables");
+      } else if (name == Slice("approximate-memory-usage")) {
+        PrintStats("leveldb.approximate-memory-usage");
       } else if (name == Slice("flush")) {
         PrintStats("leveldb.flush");
       } else {
@@ -859,6 +863,7 @@ class Benchmark {
     Status s;
     int64_t bytes = 0;
     int64_t bytes_this_batch = 0;
+    int64_t bytes_this_group = 0;
     KeyBuffer key;
 
     auto start_time = std::chrono::steady_clock::now();
@@ -897,6 +902,14 @@ class Benchmark {
         }
       }
       bytes += bytes_this_batch;
+      bytes_this_group += bytes_this_batch;
+      if (group_size > 0 && bytes_this_group >= group_size) {
+        auto now = std::chrono::steady_clock::now();
+        auto cur_elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
+        double throughput = bytes * 1.0 / 1024 / 1024 / (cur_elapsed_time / 1000.0);
+        std::cout << "Throughput " << cur_elapsed_time / 1000 << " second: " << throughput << " MB per second" << std::endl;
+        bytes_this_group = 0;
+      }
       if (!s.ok()) {
         std::fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         std::exit(1);
@@ -1099,6 +1112,9 @@ class Benchmark {
       Slice s = Slice(key.slice().data(), key.slice().size() - 1);
       db_->Get(options, s, &value);
       thread->stats.FinishedSingleOp();
+    }
+    if(READ_TIME_ANALYSIS){
+      std::cout<< ((DBImpl*)db_)->readStats_.getStats() << std::endl;
     }
   }
 
@@ -1309,6 +1325,8 @@ int main(int argc, char** argv) {
     //   VALUE_SIZE = length;
     } else if (sscanf(argv[i], "--pm_size=%lu%c", &space, &junk) == 1) {
       PM_SIZE = space;
+    } else if (sscanf(argv[i], "--group_size=%lu%c", &space, &junk) == 1) {
+      group_size = space;
     } else if (sscanf(argv[i], "--bucket_nums=%lu%c", &space, &junk) == 1) {
       BUCKET_NUMS = space;
     } else if (sscanf(argv[i], "--use_pm=%d%c", &n, &junk) == 1 &&

@@ -4,7 +4,7 @@ KB=$((1024))
 MB=$(($KB*1024))
 GB=$(($MB*1024))
 # APP_PREFIX=sudo
-APP_PREFIX="numactl --cpunodebind=0 --membind=0"
+APP_PREFIX="numactl --cpunodebind=1 --membind=1"
 
 db_path=$(pwd)
 db_bench=$db_path/build
@@ -14,10 +14,10 @@ ycsb_path=$db_path/ycsbc
 sata_path=/tmp/pm_test
 # ssd_path=/tmp/pm_test
 ssd_path=/media/nvme/pm_test
-pm_path=/mnt/pmem0.1/pm_test
+pm_path=/mnt/pmem1/pm_test
 # leveldb_path=/tmp/leveldb
 leveldb_path=$pm_path
-output_path=$db_path/output-new9
+output_path=$db_path/output-new11
 output_file=$output_path/result.out
 
 export CPLUS_INCLUDE_PATH=$db_path/include:$CPLUS_INCLUDE_PATH
@@ -32,9 +32,9 @@ value_size=1024
 num_kvs=$((10*$MB))
 write_buffer_size=$((64*$MB))
 max_file_size=$((128*$MB))
-pm_size=$((180*$GB))
+pm_size=$((380*$GB))
 bucket_nums=$((4*$MB)) # bucket_nums * 4 > nums_kvs
-max_open_files=$((10000))
+max_open_files=$((50000))
 reads=$((-1))
 use_pm=1
 flush_ssd=0
@@ -42,6 +42,7 @@ throughput=0
 dynamic_tree=1
 write_batch=1
 gc_ratio=0.5
+group_size=0
 
 WRITE10M-8B() {
     value_size=$((8))
@@ -271,6 +272,7 @@ RUN_DB_BENCH() {
                 --dynamic_tree=$dynamic_tree \
                 --write_batch=$write_batch \
                 --gc_ratio=$gc_ratio \
+                --group_size=$group_size \
                 "
     cmd="$APP_PREFIX $db_bench/db_bench $parameters >> $output_file"
     echo "$cmd" >> "$output_file"
@@ -344,7 +346,10 @@ MAKE() {
     mkdir "$db_bench"
   fi
   cd $db_bench
-  cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build .
+
+#   cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build .
+  cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && cmake --build .
+
   cd ..
 
   cd "$ycsb_path" || exit
@@ -641,14 +646,19 @@ YCSB_TEST_LATENCY(){
     cd "$ycsb_path" || exit
     echo "------------YCSB------------"
     echo "-----1KB YCSB latency-----"
-    output_file=$output_path/YCSB_1KB_Latency
+    output_file=$output_path/YCSB_1KB_Latency1
     ycsb_input=1KB_ALL_Latency
     RUN_YCSB
 
-    echo "-----4KB YCSB latency-----"
-    output_file=$output_path/YCSB_4KB_Latency
-    ycsb_input=4KB_ALL_Latency
+    echo "------------YCSB------------"
+    echo "-----1KB YCSB latency-----"
+    output_file=$output_path/YCSB_1KB_Latency2
+    ycsb_input=1KB_ALL_Latency
     RUN_YCSB
+    # echo "-----4KB YCSB latency-----"
+    # output_file=$output_path/YCSB_4KB_Latency
+    # ycsb_input=4KB_ALL_Latency
+    # RUN_YCSB
     cd ..
 }
 
@@ -661,10 +671,10 @@ YCSB_TEST_SSD(){
     ycsb_input=1KB_ALL_SSD
     RUN_YCSB
 
-    echo "-----4KB YCSB SSD-----"
-    output_file=$output_path/YCSB_4KB_SSD
-    ycsb_input=4KB_ALL_SSD
-    RUN_YCSB
+    # echo "-----4KB YCSB SSD-----"
+    # output_file=$output_path/YCSB_4KB_SSD
+    # ycsb_input=4KB_ALL_SSD
+    # RUN_YCSB
     cd ..
     APP_PREFIX="numactl --cpunodebind=0 --membind=0"
 }
@@ -700,9 +710,9 @@ CUCKOO_FILTER_ANALYSIS2(){
     sed -i 's/WRITE_TIME_ANALYSIS = false/WRITE_TIME_ANALYSIS = true/g' "$db_path"/util/global.h
     sed -i 's/TEST_CUCKOOFILTER = false/TEST_CUCKOOFILTER = true/g' "$db_path"/util/global.h
 
-    benchmarks="fillrandom,stats"
+    benchmarks="fillrandom,stats,readrandom,stats,readmissing,stats,"
 
-    echo "---- with delete cuckoo filter without bloom filter----"
+    echo "---- with immediate delete cuckoo filter without bloom filter----"
     sed -i 's/TEST_CUCKOO_DELETE = false/TEST_CUCKOO_DELETE = true/g' "$db_path"/util/global.h
     sed -i 's/TEST_CUCKOOFILTER = true/TEST_CUCKOOFILTER = false/g' "$db_path"/util/global.h
     MAKE
@@ -715,7 +725,7 @@ CUCKOO_FILTER_ANALYSIS2(){
 
 
 
-    # benchmarks="fillrandom,stats,readrandom,stats"
+    # # benchmarks="fillrandom,stats,readrandom,stats"
     # echo "---- without cuckoo filter without bloom filter----"
     # sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' "$db_path"/util/global.h
     # MAKE
@@ -731,13 +741,13 @@ CUCKOO_FILTER_ANALYSIS2(){
     # WRITE80G
     # RUN_DB_BENCH
 
-    # echo "---- with cuckoo filter 32M ----"
-    # sed -i 's/CUCKOO_FILTER = false/CUCKOO_FILTER = true/g' "$db_path"/util/global.h
-    # sed -i 's/BLOOM_FILTER = true/BLOOM_FILTER = false/g' "$db_path"/util/global.h
-    # MAKE
-    # output_file=$output_path/Cuckoo_Filter_YES_RW_NVM_1K
-    # WRITE80G
-    # RUN_DB_BENCH
+    echo "---- with cuckoo filter 32M ----"
+    sed -i 's/CUCKOO_FILTER = false/CUCKOO_FILTER = true/g' "$db_path"/util/global.h
+    sed -i 's/BLOOM_FILTER = true/BLOOM_FILTER = false/g' "$db_path"/util/global.h
+    MAKE
+    output_file=$output_path/Cuckoo_Filter_YES_RW_NVM_1K
+    WRITE80G
+    RUN_DB_BENCH
 
     # echo "---- with cuckoo filter 16M ----"
     # output_file=$output_path/Cuckoo_Filter_YES_16M_RW_NVM_1K
@@ -757,11 +767,11 @@ CUCKOO_FILTER_ANALYSIS2(){
     # bucket_nums=$((4*$MB))
     # RUN_DB_BENCH
 
-    # echo "---- with cuckoo filter with bloom filter 16M ----"
+    # echo "---- with cuckoo filter with bloom filter 32M ----"
     # sed -i 's/CUCKOO_FILTER = false/CUCKOO_FILTER = true/g' "$db_path"/util/global.h
     # sed -i 's/BLOOM_FILTER = false/BLOOM_FILTER = true/g' "$db_path"/util/global.h
     # MAKE
-    # output_file=$output_path/Cuckoo_Filter_YES_BL_YES_16M_RW_NVM_1K
+    # output_file=$output_path/Cuckoo_Filter_YES_BL_YES_32M_RW_NVM_1K
     # WRITE80G
     # RUN_DB_BENCH
 
@@ -953,6 +963,90 @@ DATA_SIZE_ANALYSIS(){
     leveldb_path=$pm_path
 }
 
+DATA_SIZE_ANALYSIS2(){
+    flush_ssd=1
+    leveldb_path=$ssd_path
+    bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
+    value_size=$((1*$KB))
+    # reads=$((1024*1024))
+    # max_file_size=$((256*$MB))
+    APP_PREFIX=""
+    echo "------data size analysis-------"
+    benchmarks="fillrandom,stats,approximate-memory-usage,readrandom"
+
+    CLEAN_ALL_DB
+
+    # echo "---- 80GB 16GNVM----"
+    # output_file=$output_path/data_80G_NUMA
+    # pm_size=$((16*$GB))
+    # write_buffer_size=$((64*$MB))
+    # num_kvs=$((80*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # echo "---- 160GB 32GNVM----"
+    # output_file=$output_path/data_160G_NUMA
+    # pm_size=$((32*$GB))
+    # write_buffer_size=$((64*$MB))
+    # num_kvs=$((160*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # echo "---- 240GB 48GNVM----"
+    # output_file=$output_path/data_240G_NUMA
+    # pm_size=$((48*$GB))
+    # write_buffer_size=$((64*$MB))
+    # num_kvs=$((240*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # echo "---- 320GB 64GNVM----"
+    # output_file=$output_path/data_320G_128MB
+    # pm_size=$((64*$GB))
+    # write_buffer_size=$((64*$MB))
+    # num_kvs=$((320*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # sed -i 's/Cache_All_Filter = false/Cache_All_Filter = true/g' "$db_path"/util/global.h
+    # MAKE
+    # echo "---- 320GB 32GNVM----"
+    # output_file=$output_path/data_320G_128MB_CacheAll
+    # pm_size=$((64*$GB))
+    # write_buffer_size=$((64*$MB))
+    # num_kvs=$((320*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # sed -i 's/Cache_All_Filter = true/Cache_All_Filter = false/g' "$db_path"/util/global.h
+    # MAKE
+
+    # max_file_size=$((512*$MB))
+    # echo "---- 320GB 32GNVM----"
+    # output_file=$output_path/data_320G_512MB
+    # pm_size=$((64*$GB))
+    # write_buffer_size=$((64*$MB))
+    # num_kvs=$((320*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # echo "---- 400GB 40GNVM----"
+    # output_file=$output_path/data_400G_NUMA
+    # pm_size=$((80*$GB))
+    # write_buffer_size=$((64*$MB))
+    # num_kvs=$((400*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    echo "---- 600GB 120GNVM----"
+    output_file=$output_path/data_600G_NUMA
+    pm_size=$((120*$GB))
+    write_buffer_size=$((64*$MB))
+    num_kvs=$((600*$GB / $value_size))
+    RUN_DB_BENCH
+
+    bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
+    pm_size=$((180*$GB))
+    max_file_size=$((128*$MB))
+    APP_PREFIX="numactl --cpunodebind=1 --membind=1"
+    reads=$((-1))
+    flush_ssd=0
+    leveldb_path=$pm_path
+}
+
 NVM_DATA_SIZE_ANALYSIS(){
     # flush_ssd=1
     # leveldb_path=$ssd_path
@@ -996,6 +1090,89 @@ NVM_DATA_SIZE_ANALYSIS(){
 
     bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
     pm_size=$((180*$GB))
+    # flush_ssd=0
+    # leveldb_path=$pm_path
+}
+
+NVM_DATA_SIZE_ANALYSIS2(){
+    # flush_ssd=1
+    # leveldb_path=$ssd_path
+    pm_size=$((670*$GB))
+    bucket_nums=$((128*$MB)) # bucket_nums * 4 > nums_kvs
+    value_size=$((1*$KB))
+    # reads=$((10*1024))
+    echo "------data size analysis-------"
+    benchmarks="fillrandom,readrandom,stats"
+
+    CLEAN_ALL_DB
+
+    # echo "---- 80GB----"
+    # output_file=$output_path/data_NVM_80G
+    # write_buffer_size=$((256*$MB))
+    # num_kvs=$((80*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # echo "---- 160GB----"
+    # output_file=$output_path/data_NVM_160G
+    # write_buffer_size=$((256*$MB))
+    # num_kvs=$((160*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # echo "---- 240GB----"
+    # output_file=$output_path/data_NVM_240G
+    # write_buffer_size=$((256*$MB))
+    # num_kvs=$((240*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # echo "---- 320GB----"
+    # output_file=$output_path/data_NVM_320G
+    # write_buffer_size=$((256*$MB))
+    # num_kvs=$((320*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    # echo "---- 400GB----"
+    # output_file=$output_path/data_NVM_400G
+    # write_buffer_size=$((256*$MB))
+    # num_kvs=$((400*$GB / $value_size))
+    # RUN_DB_BENCH
+
+    echo "---- 600GB----"
+    output_file=$output_path/data_NVM_600G2
+    write_buffer_size=$((256*$MB))
+    num_kvs=$((600*$GB / $value_size))
+    RUN_DB_BENCH
+
+    bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
+    pm_size=$((180*$GB))
+    reads=$((-1))
+    # flush_ssd=0
+    # leveldb_path=$pm_path
+}
+
+NVM_DATA_SIZE_ANALYSIS3(){
+    # flush_ssd=1
+    # leveldb_path=$ssd_path
+    pm_size=$((700*$GB))
+    bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
+    value_size=$((1*$KB))
+    reads=$((10*1024))
+    group_size=$((80*$GB))
+    echo "------data size analysis-------"
+    benchmarks="fillrandom,readrandom,stats"
+
+    CLEAN_ALL_DB
+
+
+    echo "---- 400GB----"
+    output_file=$output_path/data_NVM_400G
+    write_buffer_size=$((256*$MB))
+    num_kvs=$((640*$GB / $value_size))
+    RUN_DB_BENCH
+
+    bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
+    pm_size=$((180*$GB))
+    reads=$((-1))
+    group_size=$((0))
     # flush_ssd=0
     # leveldb_path=$pm_path
 }
@@ -1516,41 +1693,43 @@ YCSB_TEST_MULTI_THREAD(){
     APP_PREFIX="numactl --cpunodebind=0 --membind=0"
 }
 
-# echo "chapter 4.1"
-DB_BENCH_TEST
-# DB_BENCH_TEST2
-DB_BENCH_THROUGHPUT
-SMALL_VALUE_TEST
-DYNAMIC_TREE_ANALYSIS
+# # echo "chapter 4.1"
+# DB_BENCH_TEST
+# # DB_BENCH_TEST2
+# DB_BENCH_THROUGHPUT
+# SMALL_VALUE_TEST
+# DYNAMIC_TREE_ANALYSIS
 
-# echo "chapter 4.2"
-YCSB_TEST
-YCSB_TEST_LATENCY
+# # echo "chapter 4.2"
+# YCSB_TEST
+# YCSB_TEST_LATENCY
 
-# echo "chapter 4.3"
-YCSB_TEST_SSD
-THREAD_COUNT_ANALYSIS
-DB_BENCH_TEST_FLUSHSSD
-# DB_BENCH_TEST_FLUSHSSD2
-# # DB_BENCH_TEST_FLUSHSSD_4K
-DATA_SIZE_ANALYSIS
+# # echo "chapter 4.3"
+# YCSB_TEST_SSD
+# THREAD_COUNT_ANALYSIS
+# DB_BENCH_TEST_FLUSHSSD
+# # DB_BENCH_TEST_FLUSHSSD2
+# # # DB_BENCH_TEST_FLUSHSSD_4K
+# DATA_SIZE_ANALYSIS
 
-# echo "chapter 4.4"
-MALLOC_FLUSH_TEST
-WRITE_TIME_ANALYSIS
-# CUCKOO_FILTER_ANALYSIS
+# # echo "chapter 4.4"
+# MALLOC_FLUSH_TEST
+# WRITE_TIME_ANALYSIS
+# # CUCKOO_FILTER_ANALYSIS
 CUCKOO_FILTER_ANALYSIS2
 
-INDEX_SCAN_TEST
-# SMALL_VALUE_TEST
+# INDEX_SCAN_TEST
+# # SMALL_VALUE_TEST
 
-INDEX_TEST
-# DB_BENCH_ReWhileWr_TEST
-# YCSB_TEST_MULTI_THREAD
-# DB_BENCH_TEST_GC
-NVM_DATA_SIZE_ANALYSIS
+# INDEX_TEST
+# # DB_BENCH_ReWhileWr_TEST
+# # YCSB_TEST_MULTI_THREAD
+# # DB_BENCH_TEST_GC
+# NVM_DATA_SIZE_ANALYSIS
 
 # CUCKOO_FILTER_ANALYSIS2
+# NVM_DATA_SIZE_ANALYSIS2
+# DATA_SIZE_ANALYSIS2
 
 # MALLOC_FLUSH_TEST
 # DYNAMIC_TREE_ANALYSIS

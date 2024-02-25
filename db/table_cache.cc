@@ -8,6 +8,7 @@
 #include "leveldb/env.h"
 #include "leveldb/table.h"
 #include "util/coding.h"
+#include "util/global.h"
 
 namespace leveldb {
 
@@ -69,7 +70,11 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
       TableAndFile* tf = new TableAndFile;
       tf->file = file;
       tf->table = table;
-      *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
+      if(Cache_All_Filter){
+        *handle = cache_->Insert(key, tf, 0, &DeleteEntry);
+      }else{
+        *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
+      }
     }
   }
   return s;
