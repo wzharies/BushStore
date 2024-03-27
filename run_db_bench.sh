@@ -17,7 +17,7 @@ ssd_path=/media/nvme/pm_test
 pm_path=/mnt/pmem1/pm_test
 # leveldb_path=/tmp/leveldb
 leveldb_path=$pm_path
-output_path=$db_path/output-new11
+output_path=$db_path/output-new13
 output_file=$output_path/result.out
 
 export CPLUS_INCLUDE_PATH=$db_path/include:$CPLUS_INCLUDE_PATH
@@ -710,36 +710,37 @@ CUCKOO_FILTER_ANALYSIS2(){
     sed -i 's/WRITE_TIME_ANALYSIS = false/WRITE_TIME_ANALYSIS = true/g' "$db_path"/util/global.h
     sed -i 's/TEST_CUCKOOFILTER = false/TEST_CUCKOOFILTER = true/g' "$db_path"/util/global.h
 
+    # benchmarks="fillrandom,stats"
     benchmarks="fillrandom,stats,readrandom,stats,readmissing,stats,"
 
-    echo "---- with immediate delete cuckoo filter without bloom filter----"
-    sed -i 's/TEST_CUCKOO_DELETE = false/TEST_CUCKOO_DELETE = true/g' "$db_path"/util/global.h
-    sed -i 's/TEST_CUCKOOFILTER = true/TEST_CUCKOOFILTER = false/g' "$db_path"/util/global.h
+    # echo "---- with immediate delete cuckoo filter without bloom filter----"
+    # sed -i 's/TEST_CUCKOO_DELETE = false/TEST_CUCKOO_DELETE = true/g' "$db_path"/util/global.h
+    # sed -i 's/TEST_CUCKOOFILTER = true/TEST_CUCKOOFILTER = false/g' "$db_path"/util/global.h
+    # MAKE
+    # output_file=$output_path/Cuckoo_Filter_Delete_R_NVM_1K
+    # WRITE80G
+    # RUN_DB_BENCH
+    # sed -i 's/TEST_CUCKOO_DELETE = true/TEST_CUCKOO_DELETE = false/g' "$db_path"/util/global.h
+    # sed -i 's/TEST_CUCKOOFILTER = false/TEST_CUCKOOFILTER = true/g' "$db_path"/util/global.h
+    # MAKE
+
+
+
+    # benchmarks="fillrandom,stats,readrandom,stats"
+    echo "---- without cuckoo filter without bloom filter----"
+    sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' "$db_path"/util/global.h
     MAKE
-    output_file=$output_path/Cuckoo_Filter_Delete_R_NVM_1K
+    output_file=$output_path/Cuckoo_Filter_NO_BL_NO_RW_NVM_1K
     WRITE80G
     RUN_DB_BENCH
-    sed -i 's/TEST_CUCKOO_DELETE = true/TEST_CUCKOO_DELETE = false/g' "$db_path"/util/global.h
-    sed -i 's/TEST_CUCKOOFILTER = false/TEST_CUCKOOFILTER = true/g' "$db_path"/util/global.h
+
+    echo "---- without cuckoo filter with bloom filter----"
+    sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' "$db_path"/util/global.h
+    sed -i 's/BLOOM_FILTER = false/BLOOM_FILTER = true/g' "$db_path"/util/global.h
     MAKE
-
-
-
-    # # benchmarks="fillrandom,stats,readrandom,stats"
-    # echo "---- without cuckoo filter without bloom filter----"
-    # sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' "$db_path"/util/global.h
-    # MAKE
-    # output_file=$output_path/Cuckoo_Filter_NO_BL_NO_RW_NVM_1K
-    # WRITE80G
-    # RUN_DB_BENCH
-
-    # echo "---- without cuckoo filter with bloom filter----"
-    # sed -i 's/CUCKOO_FILTER = true/CUCKOO_FILTER = false/g' "$db_path"/util/global.h
-    # sed -i 's/BLOOM_FILTER = false/BLOOM_FILTER = true/g' "$db_path"/util/global.h
-    # MAKE
-    # output_file=$output_path/Cuckoo_Filter_NO_BL_YES_RW_NVM_1K
-    # WRITE80G
-    # RUN_DB_BENCH
+    output_file=$output_path/Cuckoo_Filter_NO_BL_YES_RW_NVM_1K
+    WRITE80G
+    RUN_DB_BENCH
 
     echo "---- with cuckoo filter 32M ----"
     sed -i 's/CUCKOO_FILTER = false/CUCKOO_FILTER = true/g' "$db_path"/util/global.h
@@ -814,6 +815,7 @@ THREAD_COUNT_ANALYSIS(){
     echo "------thread count analysis-------"
     benchmarks="fillrandom,stats"
     echo "---- 1 thread ----"
+    sed -i 's/WRITE_TIME_ANALYSIS = false/WRITE_TIME_ANALYSIS = true/g' "$db_path"/util/global.h
     sed -i 's/TASK_COUNT = [0-9]*/TASK_COUNT = 1/g' "$db_path"/util/global.h
     MAKE
     output_file=$output_path/Thead_1_Rnd_W_8GNVM_1K
@@ -858,6 +860,9 @@ THREAD_COUNT_ANALYSIS(){
     pm_size=$((180*$GB))
     flush_ssd=0
     leveldb_path=$pm_path;
+
+    sed -i 's/WRITE_TIME_ANALYSIS = true/WRITE_TIME_ANALYSIS = false/g' "$db_path"/util/global.h
+    MAKE
 }
 
 DYNAMIC_TREE_ANALYSIS(){
@@ -968,11 +973,11 @@ DATA_SIZE_ANALYSIS2(){
     leveldb_path=$ssd_path
     bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
     value_size=$((1*$KB))
-    # reads=$((1024*1024))
+    reads=$((1024*1024))
     # max_file_size=$((256*$MB))
-    APP_PREFIX=""
+    # APP_PREFIX=""
     echo "------data size analysis-------"
-    benchmarks="fillrandom,stats,approximate-memory-usage,readrandom"
+    benchmarks="fillrandom,stats,approximate-memory-usage,readrandom,readrandom"
 
     CLEAN_ALL_DB
 
@@ -1041,7 +1046,7 @@ DATA_SIZE_ANALYSIS2(){
     bucket_nums=$((64*$MB)) # bucket_nums * 4 > nums_kvs
     pm_size=$((180*$GB))
     max_file_size=$((128*$MB))
-    APP_PREFIX="numactl --cpunodebind=1 --membind=1"
+    # APP_PREFIX="numactl --cpunodebind=1 --membind=1"
     reads=$((-1))
     flush_ssd=0
     leveldb_path=$pm_path
@@ -1706,7 +1711,7 @@ YCSB_TEST_MULTI_THREAD(){
 
 # # echo "chapter 4.3"
 # YCSB_TEST_SSD
-# THREAD_COUNT_ANALYSIS
+THREAD_COUNT_ANALYSIS
 # DB_BENCH_TEST_FLUSHSSD
 # # DB_BENCH_TEST_FLUSHSSD2
 # # # DB_BENCH_TEST_FLUSHSSD_4K
@@ -1716,7 +1721,7 @@ YCSB_TEST_MULTI_THREAD(){
 # MALLOC_FLUSH_TEST
 # WRITE_TIME_ANALYSIS
 # # CUCKOO_FILTER_ANALYSIS
-CUCKOO_FILTER_ANALYSIS2
+# CUCKOO_FILTER_ANALYSIS2
 
 # INDEX_SCAN_TEST
 # # SMALL_VALUE_TEST

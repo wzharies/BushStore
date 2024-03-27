@@ -42,10 +42,10 @@ constexpr bool TEST_CUCKOO_DELETE = false; // must be false;
 constexpr int initMemtableSize = 1 * 1024 * 1024;
 constexpr int addMemtableSize = 4 * 1024 * 1024;
 constexpr int minMergeCount = 1;
-constexpr int maxMergeCount = 15;
+constexpr int maxMergeCount = 21;
 constexpr int L0BufferCount = 40;
 constexpr int L0BufferCountMax = 50;
-constexpr int MinCompactionL0Count = 8;
+constexpr int MinCompactionL0Count = 11;
 
 // compile
 constexpr bool CUCKOO_FILTER = true;

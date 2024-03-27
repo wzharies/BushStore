@@ -258,6 +258,7 @@ private:
   std::thread compactionThread_;
   uint64_t lastWriteMemTime0_ = 0;
   std::atomic<int> lastMemTime_ = 0;
+  uint64_t lastMemTimeTotal_ = 0;
   std::atomic<int> lastCompactL0Time_ = 0;
   std::atomic<int> lastCompactL1Time_ = 0;
   std::atomic<size_t> compactL0Count_ = 2;

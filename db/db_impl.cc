@@ -991,7 +991,9 @@ Status DBImpl::CompactionLevel0(){
     mergeSize = Table_L0_.size();
   // }
   if(TEST_CUCKOOFILTER){
-    mergeSize -= 7;
+    if(mergeSize > MinCompactionL0Count - 1){
+      mergeSize -= (MinCompactionL0Count - 1);
+    }
   }
   mutex_l0_.lock();
   std::vector<std::shared_ptr<lbtree>> Table_L0_Merge(Table_L0_.begin(), Table_L0_.begin() + mergeSize);
@@ -1222,6 +1224,7 @@ Status DBImpl::CompactionLevel0(){
       if(lastMemTime_ > lastCompactL0Time_ * 10){
         lastMemTime_ = lastCompactL0Time_ * 10;
       }
+      // mergeCount = lastCompactL1Time_ / (std::max(lastCompactL0Time_,lastMemTime_) + std::min(lastCompactL0Time_,lastMemTime_));
       mergeCount = lastCompactL1Time_ / std::max(lastCompactL0Time_,lastMemTime_);
       // printf("%d %d %d %d\n", mergeCount, lastCompactL1Time_.load(), lastCompactL0Time_.load(), lastMemTime_.load());
       if(mergeCount >= minMergeCount && mergeCount <= maxMergeCount){
@@ -3071,6 +3074,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
         lastWriteMemTime0_ = env_->NowMicros();
       }else{
         lastMemTime_ = (env_->NowMicros() - lastWriteMemTime0_) / 1000;
+        lastMemTimeTotal_ += lastMemTime_;
         lastWriteMemTime0_ = env_->NowMicros();
       }
       MaybeScheduleCompaction();
@@ -3112,6 +3116,9 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
       int files = versions_->NumLevelFiles(level);
       if(level == 0){
         files = Table_L0_.size();
+        std::snprintf(buf, sizeof(buf), "write time %9.0lu\n",
+                      lastMemTimeTotal_);
+        value->append(buf);
       }else if(level == 1){
         files = Table_LN_.size();
       }
@@ -3126,6 +3133,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
         value->append(buf);
       }
     }
+
     return true;
   } else if (in == "sstables") {
     *value = versions_->current()->DebugString();
